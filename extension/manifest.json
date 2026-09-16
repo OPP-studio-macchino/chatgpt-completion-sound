@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "チャッピー完了音",
+  "version": "0.2.9",
+  "version_name": "0.2.9 検証用修正版",
+  "description": "開いているChatGPTの応答終了を音声とタブの色でお知らせ。作業中は黄色、完了は青色。好きなWAVを設定できます。",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "storage",
+    "offscreen",
+    "alarms",
+    "scripting"
+  ],
+  "optional_permissions": [
+    "tabGroups"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "チャッピー完了音",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "24": "icons/icon-24.png",
+      "32": "icons/icon-32.png"
+    }
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "detector.js",
+        "dom-reader.js",
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'; media-src 'self' data: blob:"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "host_permissions": [
+    "https://chatgpt.com/*"
+  ]
+}

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>チャッピー完了音</title><link rel="stylesheet" href="style.css"></head>
+<body class="popup">
+  <header class="brand"><img src="icons/icon-64.png" width="36" height="36" alt=""><p class="eyebrow">O.P.P STUDIO · CHAPPY</p></header>
+  <h1>チャッピー完了音</h1><p id="summary">確認中…</p>
+  <label class="switch"><input id="enabled" type="checkbox">自動通知</label>
+  <section class="diagnostic" aria-labelledby="tabHeading">
+    <h2 id="tabHeading">このタブの状態</h2>
+    <p id="tabStatus" role="status">確認中…</p>
+    <p id="tabDetail"></p><p id="tabProbe" class="muted"></p><p id="tabColor"></p>
+  </section>
+  <details class="other-tabs"><summary>ほかのタブの状態</summary><p class="muted">対象タブへ切り替えずに確認できます。</p><div id="otherTabs"></div></details>
+  <p id="stats" class="muted"></p><p id="error" role="status" class="error"></p>
+  <button id="settings">音声と色の設定</button><footer id="version"></footer>
+  <script src="diagnostics.js"></script><script src="popup.js"></script>
+</body></html>

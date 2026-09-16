@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>チャッピー完了音 — 設定</title><link rel="stylesheet" href="style.css"></head>
+<body><main class="settings">
+  <header class="brand"><img src="icons/icon-128.png" width="64" height="64" alt=""><p class="eyebrow">O.P.P STUDIO · CHAPPY</p></header>
+  <h1>作業の終わりを、音と色で。</h1>
+  <p class="lead">開いているChatGPTの応答が終わったら、お気に入りの音声でお知らせします。</p>
+  <p class="muted">検証用修正版です。背景タブで遅れる不具合を修正中で、実機での改善確認はまだ完了していません。</p>
+  <section>
+    <h2>1. 完了音声を選ぶ</h2>
+    <p>お使いのパソコンから、5MB以下のWAVファイルを選んでください。音声はこのブラウザ内に保存されます。</p>
+    <label class="file-label" for="sound">WAVファイルを選択</label>
+    <input id="sound" type="file" accept=".wav,audio/wav,audio/x-wav">
+    <p id="filename">音声未設定</p><p id="match" class="muted"></p>
+    <label for="volume">音量 <output id="volumeValue">80%</output></label>
+    <input id="volume" type="range" min="0" max="100" step="5" value="80">
+    <button id="test">音声を1回鳴らす</button>
+  </section>
+  <section>
+    <h2>2. 自動通知を有効にする</h2>
+    <label class="switch"><input id="enabled" type="checkbox">開いているChatGPTのタブで通知する</label>
+    <p>導入・更新後は、ChatGPTのタブを一度再読み込みしてください。途中の応答がある場合は、終了してから行ってください。</p>
+  </section>
+  <section>
+    <h2>3. タブを色で知らせる</h2>
+    <label class="switch"><input id="colorTabs" type="checkbox">タブの色も変える</label>
+    <p class="legend"><span class="pill working">作業中 · 黄色</span><span class="pill complete">完了 · 青色</span></p>
+    <p>タブごとに専用グループを作り、ラベルと枠を色で表示します。完了の青色は、次の作業・画面移動まで残ります。</p>
+    <p class="muted">初回にChromeの「タブグループ」権限を許可してください。固定タブ・既存のグループ・分割表示は音声のみです。色の表示をオフにすると、この拡張が管理中のグループを解除します。</p>
+  </section>
+  <p id="status" role="status" aria-live="polite"></p>
+  <section class="note">
+    <h2>通知できる範囲</h2>
+    <p>このChromeで読み込まれているChatGPTのタブが対象です。C2Cの選択・APIキー・追加サーバーは不要です。</p>
+    <p>閉じたタブ、休止されたタブ、Chrome終了中、パソコンのスリープ中は検知できません。手動停止では完了音を鳴らしません。ChatGPTの表示変更により調整が必要になる場合があります。</p>
+    <p>会話本文や音声を外部へ送信しません。C2Cの完了音も有効な場合は、同じ作業で両方が鳴ることがあります。</p>
+  </section>
+  <footer>v0.2.9 検証用修正版 · <a href="privacy.html" target="_blank" rel="noopener">プライバシー</a> · OpenAIの公式拡張ではありません。</footer>
+</main><script src="options.js"></script></body></html>

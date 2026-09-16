@@ -1,0 +1,24 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const Detector=require('../extension/detector.js');
+const base={route:'/c/test',user:'u1',enabled:true,busy:false,ready:true,message:'old',blocked:false,error:false};
+function snap(change={}){return {...base,...change};}
+function finish(d,id='new',t=100){assert.equal(d.step(snap({message:id}),t),null);return d.step(snap({message:id}),t+2000);}
+test('opening old chat does not notify',()=>{const d=new Detector();assert.equal(d.step(base,0),null);assert.equal(d.step(base,5000),null);});
+test('normal completion waits for final controls and settles, exactly once',()=>{const d=new Detector();d.step(snap({busy:true}),0);assert.equal(d.step(snap({message:'new',ready:false}),20),null);assert.equal(finish(d),'new');assert.equal(d.step(snap({message:'new'}),9999),null);});
+test('attaching during active answer can notify',()=>{const d=new Detector();d.step(snap({busy:true,ready:false,message:'new'}),0);assert.equal(finish(d),'new');});
+test('old copy controls while starting a new response do not notify',()=>{const d=new Detector();d.step(snap({busy:true}),0);d.step(base,100);assert.equal(d.step(base,6000),null);});
+test('temporary stop-button disappearance cannot finish without a new final answer',()=>{const d=new Detector();d.step(snap({busy:true,ready:false,message:''}),0);d.step(snap({ready:false,message:''}),100);assert.equal(d.step(snap({ready:false,message:''}),4000),null);d.step(snap({busy:true,ready:false,message:'new'}),4100);assert.equal(finish(d,'new',5000),'new');});
+test('generation restarts during settle period',()=>{const d=new Detector();d.step(snap({busy:true}),0);d.step(snap({message:'new'}),100);d.step(snap({busy:true,message:'new'}),1000);assert.equal(d.step(snap({message:'new'}),2500),null);assert.equal(d.step(snap({message:'new'}),4500),'new');});
+test('manual stop suppresses partial reply but subsequent turn works',()=>{const d=new Detector();d.step(snap({busy:true}),0);d.cancel();assert.equal(d.step(snap({message:'partial'}),100),null);assert.equal(d.step(snap({message:'partial'}),5000),null);d.step(snap({busy:true,user:'u2'}),6000);d.step(snap({user:'u2',message:'second'}),6100);assert.equal(d.step(snap({user:'u2',message:'second'}),8200),'second');});
+test('navigation to another chat does not notify',()=>{const d=new Detector();d.step(snap({busy:true}),0);const other=snap({route:'/c/other',message:'other'});d.step(other,100);assert.equal(d.step(other,4000),null);});
+test('new chat URL promotion retains active generation',()=>{const d=new Detector();d.step(snap({route:'/',busy:true,ready:false,message:''}),0);assert.equal(finish(d),'new');});
+test('disable then enable does not notify a historical answer',()=>{const d=new Detector();d.step(snap({busy:true}),0);d.step(snap({enabled:false}),100);assert.equal(finish(d),null);});
+test('approval dialog and error suppress completion',()=>{for(const flag of ['blocked','error']){const d=new Detector();d.step(snap({busy:true}),0);d.step(snap({[flag]:true,message:'new'}),100);assert.equal(finish(d),null);}});
+test('different tabs each notify independently',()=>{const a=new Detector(),b=new Detector();a.step(snap({busy:true}),0);b.step(snap({busy:true}),0);assert.equal(finish(a,'a'),'a');assert.equal(finish(b,'b'),'b');});
+
+test('hidden-toolbar fallback requires four seconds of stable final metadata',()=>{const d=new Detector();d.step(snap({busy:true,ready:false,message:''}),0);assert.equal(d.step(snap({ready:true,provisional:true,message:'new'}),100),null);assert.equal(d.step(snap({ready:true,provisional:true,message:'new'}),2200),null);assert.equal(d.step(snap({ready:true,provisional:true,message:'new'}),4100),'new');});
+test('busy resuming cancels a provisional hidden completion',()=>{const d=new Detector();d.step(snap({busy:true,ready:false,message:''}),0);d.step(snap({ready:true,provisional:true,message:'new'}),100);d.step(snap({busy:true,ready:false,message:'new'}),3000);assert.equal(d.step(snap({ready:true,provisional:true,message:'new'}),3100),null);assert.equal(d.step(snap({ready:true,provisional:true,message:'new'}),6000),null);assert.equal(d.step(snap({ready:true,provisional:true,message:'new'}),7100),'new');});
+
+test('second user turn starts generating before stop control appears',()=>{const d=new Detector();d.step(snap({busy:true}),0);d.step(snap({message:'first'}),100);assert.equal(d.step(snap({message:'first'}),2100),'first');assert.equal(d.active,false);d.step(snap({user:'u2',ready:false,message:'',busy:false}),3000);assert.equal(d.active,true);});
+test('same-route historical branch change with a ready answer does not start generating',()=>{const d=new Detector();d.step(base,0);d.step(snap({user:'u2',ready:true,message:'historical'}),100);assert.equal(d.active,false);assert.equal(d.step(snap({user:'u2',ready:true,message:'historical'}),5000),null);});

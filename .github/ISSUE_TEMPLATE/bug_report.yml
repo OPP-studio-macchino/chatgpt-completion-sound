@@ -1,0 +1,47 @@
+name: Bug report
+description: Report reproducible notification, color, audio, or lifecycle behavior.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Please do not include private conversation text, cookies, tokens, or personal audio files."
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      placeholder: "0.2.9"
+    validations:
+      required: true
+  - type: input
+    id: chrome
+    attributes:
+      label: Chrome and OS version
+    validations:
+      required: true
+  - type: dropdown
+    id: visibility
+    attributes:
+      label: Tab visibility when the problem occurred
+      options: [Foreground, Background, Both]
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use synthetic text; do not paste private conversation content.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true

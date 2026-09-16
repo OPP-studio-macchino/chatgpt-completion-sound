@@ -1,0 +1,20 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');const {webcrypto}=require('node:crypto');
+const {parseHTML}=require(require.resolve('linkedom',{paths:[process.env.CHAPPY_DOM_DEPENDENCIES||__dirname]}));
+test('temporary background send failure does not permanently stop content monitoring',async()=>{
+ const {document,window}=parseHTML('<!doctype html><html><body><main></main></body></html>');window.HTMLElement.prototype.getClientRects=function(){return [{}];};window.getComputedStyle=e=>({display:e.style.display||'block',visibility:e.style.visibility||'visible',opacity:e.style.opacity||'1'});
+ let tick,now=0,fail=true;const sent=[],listeners=[];const chrome={runtime:{sendMessage:async msg=>{sent.push(msg);if(msg.target==='settings')return {enabled:true};if(fail){fail=false;throw new Error('temporary service worker restart');}return {ok:true};},onMessage:{addListener:f=>listeners.push(f)}}};
+ const context=vm.createContext({document,window,location:{pathname:'/c/fixture'},Element:window.Element,MutationObserver:window.MutationObserver,chrome,crypto:webcrypto,TextEncoder,Date:{now:()=>now},queueMicrotask,setTimeout:()=>1,clearTimeout:()=>{},setInterval:f=>{tick=f;return 1;},clearInterval:()=>{},console});
+ for(const f of ['detector.js','dom-reader.js','content.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../extension',f),'utf8'),context);await new Promise(setImmediate);await new Promise(setImmediate);
+ const main=document.querySelector('main');main.innerHTML='<section data-turn="user"><div data-message-author-role="user" data-message-id="user1"></div></section><button data-testid="stop-button">Stop</button>';now=1000;await tick();
+ assert.ok(sent.some(m=>m.type==='STATUS'&&m.state==='generating'));assert.ok(listeners.length); 
+});
+
+test('completion delivery retries after a transient worker restart and keeps one key',async()=>{
+ const {document,window}=parseHTML('<!doctype html><html><body><main></main></body></html>');window.HTMLElement.prototype.getClientRects=function(){return [{}];};window.getComputedStyle=e=>({display:e.style.display||'block',visibility:e.style.visibility||'visible',opacity:e.style.opacity||'1'});
+ let tick,now=0,completeAttempts=0;const sent=[],listeners=[];const chrome={runtime:{sendMessage:async msg=>{sent.push(msg);if(msg.target==='settings')return {enabled:true};if(msg.type==='COMPLETE'&&++completeAttempts===1)throw new Error('temporary service worker restart');return {ok:true};},onMessage:{addListener:f=>listeners.push(f)}}};
+ const context=vm.createContext({document,window,location:{pathname:'/c/fixture'},Element:window.Element,MutationObserver:window.MutationObserver,chrome,crypto:webcrypto,TextEncoder,Date:{now:()=>now},queueMicrotask,setTimeout:()=>1,clearTimeout:()=>{},setInterval:f=>{tick=f;return 1;},clearInterval:()=>{},console});
+ for(const f of ['detector.js','dom-reader.js','content.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../extension',f),'utf8'),context);await new Promise(setImmediate);
+ const main=document.querySelector('main');const busy='<section data-turn="user"><div data-message-author-role="user" data-message-id="u1"></div></section><button data-testid="stop-button">Stop</button>';const final='<section data-turn="user"><div data-message-author-role="user" data-message-id="u1"></div></section><section data-turn="assistant"><div data-message-author-role="assistant" data-message-id="m1"></div><button data-testid="copy-turn-action-button">Copy</button></section>';
+ main.innerHTML=busy;now=1000;await tick();main.innerHTML=final;now=1100;await tick();now=3200;await tick();await new Promise(setImmediate);assert.equal(completeAttempts,1);
+ now=4200;await tick();await new Promise(setImmediate);assert.equal(completeAttempts,2);const cs=sent.filter(m=>m.type==='COMPLETE');assert.equal(cs.length,2);assert.equal(cs[0].key,cs[1].key);assert.match(cs[0].key,/^[a-f0-9]{64}$/);
+});

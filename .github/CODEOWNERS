@@ -1,0 +1,9 @@
+* @OPP-studio-macchino
+
+# Security- and permission-sensitive areas require the primary maintainer.
+/extension/background.js @OPP-studio-macchino
+/extension/content.js @OPP-studio-macchino
+/extension/tab-colors.js @OPP-studio-macchino
+/extension/manifest.json @OPP-studio-macchino
+/SECURITY.md @OPP-studio-macchino
+/docs/THREAT-MODEL.md @OPP-studio-macchino

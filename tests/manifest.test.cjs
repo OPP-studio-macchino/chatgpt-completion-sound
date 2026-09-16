@@ -1,0 +1,2 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const manifest=require('../extension/manifest.json');
+test('programmatic reinjection is limited to the declared ChatGPT host',()=>{assert.ok(manifest.permissions.includes('scripting'));assert.deepEqual(manifest.host_permissions,['https://chatgpt.com/*']);assert.deepEqual(manifest.content_scripts[0].matches,['https://chatgpt.com/*']);});
