@@ -128,6 +128,8 @@ The current suite contains **111 regression checks**:
 
 The suite specifically covers bugs found during real-device E2E work, including background-tab completion, service-worker restarts, duplicate delivery, a second job on an already-blue tab, legacy group migration, and manual-stop suppression.
 
+See [docs/VALIDATION.md](docs/VALIDATION.md) for the current automated and real-device acceptance baseline.
+
 ## Build a local release ZIP
 
 ```bash
