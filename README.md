@@ -13,7 +13,7 @@
 
 No OpenAI API key is required. No server is required. Conversation text and the user's WAV file are not sent to an external service.
 
-> **Project status:** active development. Current extension version: **v0.2.9**. The current code has **111 automated regression checks** and has also been exercised with real-device E2E tests on macOS Chrome for foreground completion, background completion without refocusing the tab, repeated jobs on the same tab, physical audio output, and manual-stop suppression.
+> **Project status:** active development. Current extension version: **v0.2.12**. The current code has **185 automated regression checks**. Background-tab completion, yellow→blue state, and exactly-once completion playback were rechecked on a real macOS Chrome session on **2026-09-29**.
 
 ## Why this project exists
 
@@ -56,6 +56,7 @@ See [SECURITY.md](SECURITY.md), [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), an
 | `offscreen` | Plays completion audio from a Manifest V3 background context. |
 | `alarms` | Recovers monitoring after service-worker suspension. |
 | `scripting` | Re-injects the current content scripts into already-open ChatGPT tabs after extension reload. |
+| `webRequest` | Observes completion metadata for ChatGPT requests only to trigger a DOM re-check in background tabs; it does not read request/response bodies or treat transport completion as task completion. |
 | `https://chatgpt.com/*` | Restricts page access to ChatGPT. |
 | optional `tabGroups` | Adds yellow/blue visual state when explicitly enabled by the user. |
 
@@ -118,15 +119,15 @@ The extension itself has no runtime npm dependencies. `linkedom` is used only by
 
 ### Test coverage
 
-The current suite contains **111 regression checks**:
+The current suite contains **185 regression checks**:
 
-- 80 Node.js checks covering detection, audio, service-worker recovery, delivery retry, diagnostics, tab colors, migration, and permissions.
-- 18 DOM-model checks.
-- 5 content-script integration checks.
+- 145 Node.js checks covering detection, audio, service-worker recovery, native browser-timer binding, delivery retry, diagnostics, tab colors, migration, permissions, and current timeline UI variants.
+- 26 DOM-model checks.
+- 6 content-script integration checks.
 - 4 hidden-tab model checks.
 - 4 options/permission checks.
 
-The suite specifically covers bugs found during real-device E2E work, including background-tab completion, service-worker restarts, duplicate delivery, a second job on an already-blue tab, legacy group migration, and manual-stop suppression.
+The suite specifically covers bugs found during real-device E2E work, including background-tab completion, native timer `Illegal invocation`, visibility-only state transitions, current ChatGPT timeline final controls, service-worker restarts, duplicate delivery, a second job on an already-blue tab, legacy group migration, and manual-stop suppression.
 
 See [docs/VALIDATION.md](docs/VALIDATION.md) for the current automated and real-device acceptance baseline.
 

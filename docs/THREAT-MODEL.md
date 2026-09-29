@@ -15,6 +15,7 @@
 3. **Extension page → service worker**: privileged test actions are restricted to extension-owned pages.
 4. **Service worker → offscreen document**: only local audio data is passed for playback.
 5. **Extension → Chrome tabGroups API**: group ownership must not be inferred too broadly.
+6. **Chrome webRequest metadata → service worker**: transport completion is untrusted as a task-completion signal and may only trigger a DOM re-check.
 
 ## Primary risks and mitigations
 
@@ -33,6 +34,10 @@ The service worker reserves seen completion keys before playback; content retrie
 ### False completion after manual stop
 
 The detector has an explicit cancellation path. Manual stop clears the active completion candidate and must not produce blue state or completion audio.
+
+### False completion from network transport
+
+`webRequest.onCompleted` is treated only as a hint that an active background job should be checked again. The extension does not inspect request/response bodies or headers, and a transport completion event cannot directly set a tab blue or play audio. Normal DOM completion state and deduplication remain authoritative.
 
 ### Tab-group takeover
 

@@ -12,7 +12,7 @@ async function render() {
     const version = chrome.runtime.getManifest().version;
     const id = active[0]?.id;
     const d = ChappyDiagnostics.describe({config:c,record:entries['tab-'+id],probe:entries['probe-'+id],permitted,version});
-    el('tabHeading').textContent=entries['tab-'+id] ? 'このタブの状態（'+id+'）' : 'このタブの状態';
+    el('tabHeading').textContent='このタブの状態（保存済み STATUS）';
     el('enabled').checked=c.enabled;el('enabled').disabled=!c.soundName;
     el('summary').textContent=!c.soundName?'最初に完了音声を選んでください。':c.enabled?'自動通知は有効です。':'自動通知は停止中です。';
     el('tabStatus').textContent=d.status;el('tabDetail').textContent=d.detail;
@@ -31,11 +31,22 @@ async function render() {
     const connected=Object.keys(entries).filter(k=>/^tab-\d+$/.test(k)).length;
     el('stats').textContent='接続済み '+connected+'タブ · 再生 '+c.playedCount+'回（テストを含む）';
     el('error').textContent=c.lastError;
-    el('version').textContent='v'+version+' · 検証用修正版';
+    el('version').textContent='v'+version+' · 背景タブ完了通知対応';
   } catch {el('error').textContent='状態を読み込めませんでした。ポップアップを開き直してください。';}
   finally {rendering=false;if(pending){pending=false;void render();}}
 }
 el('settings').addEventListener('click',()=>chrome.runtime.openOptionsPage());
+async function renderDiagnostics() {
+  try {
+    const [active] = await chrome.tabs.query({active:true,currentWindow:true});
+    const result = await chrome.tabs.sendMessage(active.id, {type:'GET_DIAGNOSTICS'});
+    if (!result?.ok || !Array.isArray(result.trace)) throw new Error();
+    const latestMutation = result.trace.findLast(event => event.source === 'mutation' && event.mutationNodes?.length);
+    el('diagnosticTrace').textContent=JSON.stringify({unitLifecycleHistory:result.unitLifecycleHistory || [], structureHistory:result.structureHistory || [], unitSummaries:result.unitSummaries || {}, latestMutationNodes:latestMutation?.mutationNodes || [], trace:result.trace.slice(-8)}, null, 2);
+  } catch {el('diagnosticTrace').textContent='診断を取得できません';}
+}
+el('liveDiagnostics').addEventListener('toggle',()=>{if(el('liveDiagnostics').open) void renderDiagnostics();});
+el('refreshDiagnostics').addEventListener('click',()=>{void renderDiagnostics();});
 el('enabled').addEventListener('change',async()=>{await chrome.storage.local.set({enabled:el('enabled').checked});await render();});
 chrome.storage.onChanged.addListener(()=>{void render();});
 void render();

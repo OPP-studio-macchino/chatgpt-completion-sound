@@ -9,7 +9,7 @@ version = manifest["version"]
 
 assert manifest["manifest_version"] == 3
 assert manifest["minimum_chrome_version"] == "120"
-assert manifest["permissions"] == ["storage", "offscreen", "alarms", "scripting"]
+assert manifest["permissions"] == ["storage", "offscreen", "alarms", "scripting", "webRequest"]
 assert manifest["optional_permissions"] == ["tabGroups"]
 assert manifest["host_permissions"] == ["https://chatgpt.com/*"]
 assert manifest["content_security_policy"]["extension_pages"].find("connect-src 'none'") >= 0

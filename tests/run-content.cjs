@@ -28,5 +28,16 @@ const {parseHTML}=require(require.resolve('linkedom',{paths:[process.env.CHAPPY_
  main.innerHTML=busy.replace('user1','user3');now=12000;await tick();main.innerHTML=final.replace('user1','user3').replace('message1','message3');now=12100;await tick();now=15000;await tick();assert.equal(sent.filter(m=>m.type==='STATUS').at(-1).state,'complete');
  context.location.pathname='/c/other';now=15100;await tick();assert.equal(sent.filter(m=>m.type==='STATUS').at(-1).state,'watching');
  console.log('PASS 別チャットへの画面移動で完了色を解除');
- console.log('TOTAL 5 / FAIL 0');
+ context.location.pathname='/c/roleless';
+ const opaque=(n,ready=false)=>`<section data-testid="conversation-turn-${n}"><div>private fixture prose</div>${ready?'<button data-testid="copy-turn-action-button">Copy</button>':''}</section>`;
+ const completedBefore=sent.filter(m=>m.type==='COMPLETE').length;
+ main.innerHTML=opaque(40,true);now=16000;await tick();assert.equal(sent.filter(m=>m.type==='STATUS').at(-1).state,'watching');
+ for(const [n,t] of [[41,17000],[42,21000]]){
+  main.innerHTML+=opaque(n);now=t;await tick();assert.equal(sent.filter(m=>m.type==='STATUS').at(-1).state,'generating');
+  main.querySelector(`[data-testid="conversation-turn-${n}"]`).innerHTML='<button data-testid="copy-turn-action-button">Copy</button>';now=t+100;await tick();now=t+2100;await tick();now=t+2500;await tick();
+  assert.equal(sent.filter(m=>m.type==='STATUS').at(-1).state,'complete');assert.equal(sent.filter(m=>m.type==='COMPLETE').length,completedBefore+n-40);
+ }
+ assert.equal(JSON.stringify(sent).includes('private'),false);assert.equal(JSON.stringify(sent).includes('conversation-turn-'),false);
+ console.log('PASS role-less turn fallback sends generating then exactly one hashed completion per job');
+ console.log('TOTAL 6 / FAIL 0');
 })().catch(e=>{console.error(e);process.exitCode=1;});
