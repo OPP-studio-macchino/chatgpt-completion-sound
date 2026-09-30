@@ -1,6 +1,10 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');
 const {describe}=require('../extension/diagnostics.js');
 const base={config:{enabled:true,colorTabs:true,soundName:'example.wav'},record:{version:'0.2.1',state:'generating',owner:{color:'yellow'}},permitted:true,version:'0.2.1',now:10000};
+test('ownership uncertainty never claims a manual edit',()=>{
+  assert.equal(describe({...base,record:{...base.record,colorSkipped:'changed'}}).color,
+    'グループの管理状態を確認できないため、色を変更していません。');
+});
 test('color enabled does not hide that automatic notifications are off',()=>{
   const r=describe({...base,config:{...base.config,enabled:false}});assert.match(r.status,/オフ/);assert.equal(r.color,'');
 });

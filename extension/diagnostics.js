@@ -3,7 +3,7 @@
   const STATES = {off:'通知オフ',waiting:'画面の準備待ち',error:'ChatGPTのエラーを検知',generating:'作業中を検知',complete:'完了を検知',watching:'次の作業を待機'};
   const SKIPS = {
     permission:'タブグループの権限がありません。設定で「タブの色も変える」をオンにして許可してください。',
-    changed:'グループの手動変更を検知したため、色を変更していません。再開するにはグループから外し、色の設定をオフ→オンにしてください。',
+    changed:'グループの管理状態を確認できないため、色を変更していません。',
     pinned:'固定タブのため、色を変更していません。',
     grouped:'既存のグループに入っているため、色を変更していません。',
     split:'分割表示のため、色を変更していません。'
@@ -42,6 +42,12 @@
     else if (record.state === 'generating' || record.state === 'complete') result.color = 'タブの色を確認中です。';
     return result;
   }
-  root.ChappyDiagnostics = {describe};
-  if (typeof module !== 'undefined') module.exports = {describe};
+  function describeCompatibility(health) {
+    const states = {healthy:'正常',degraded:'一部の信号が不足',incompatible:'構造を確認できません・完了通知を保留'};
+    if (!health || !Object.hasOwn(states, health.state)) return '互換性シールド：状態を取得できません';
+    return '互換性シールド / Compatibility Shield：'+states[health.state]+' · '+health.profileId+' / '+health.revisionId+
+      ' · '+health.reasons.join(', ')+' · REMOTE_PROFILE_KEY_UNPROVISIONED';
+  }
+  root.ChappyDiagnostics = {describe, describeCompatibility};
+  if (typeof module !== 'undefined') module.exports = {describe, describeCompatibility};
 })(globalThis);

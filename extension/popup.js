@@ -31,7 +31,7 @@ async function render() {
     const connected=Object.keys(entries).filter(k=>/^tab-\d+$/.test(k)).length;
     el('stats').textContent='接続済み '+connected+'タブ · 再生 '+c.playedCount+'回（テストを含む）';
     el('error').textContent=c.lastError;
-    el('version').textContent='v'+version+' · 背景タブ完了通知対応';
+    el('version').textContent='v'+version+' · Compatibility Shield / 互換性シールド';
   } catch {el('error').textContent='状態を読み込めませんでした。ポップアップを開き直してください。';}
   finally {rendering=false;if(pending){pending=false;void render();}}
 }
@@ -41,12 +41,15 @@ async function renderDiagnostics() {
     const [active] = await chrome.tabs.query({active:true,currentWindow:true});
     const result = await chrome.tabs.sendMessage(active.id, {type:'GET_DIAGNOSTICS'});
     if (!result?.ok || !Array.isArray(result.trace)) throw new Error();
+    el('compatibilityHealth').textContent=ChappyDiagnostics.describeCompatibility(result.compatibility);
     const latestMutation = result.trace.findLast(event => event.source === 'mutation' && event.mutationNodes?.length);
-    el('diagnosticTrace').textContent=JSON.stringify({unitLifecycleHistory:result.unitLifecycleHistory || [], structureHistory:result.structureHistory || [], unitSummaries:result.unitSummaries || {}, latestMutationNodes:latestMutation?.mutationNodes || [], trace:result.trace.slice(-8)}, null, 2);
-  } catch {el('diagnosticTrace').textContent='診断を取得できません';}
+    el('diagnosticTrace').textContent=JSON.stringify({compatibility:result.compatibility, unitLifecycleHistory:result.unitLifecycleHistory || [], structureHistory:result.structureHistory || [], unitSummaries:result.unitSummaries || {}, latestMutationNodes:latestMutation?.mutationNodes || [], trace:result.trace.slice(-8)}, null, 2);
+  } catch {el('compatibilityHealth').textContent=ChappyDiagnostics.describeCompatibility(null);el('diagnosticTrace').textContent='診断を取得できません';}
 }
 el('liveDiagnostics').addEventListener('toggle',()=>{if(el('liveDiagnostics').open) void renderDiagnostics();});
 el('refreshDiagnostics').addEventListener('click',()=>{void renderDiagnostics();});
 el('enabled').addEventListener('change',async()=>{await chrome.storage.local.set({enabled:el('enabled').checked});await render();});
 chrome.storage.onChanged.addListener(()=>{void render();});
 void render();
+
+void renderDiagnostics();

@@ -4,6 +4,13 @@ import json, re, struct, subprocess, sys
 
 ROOT = Path(__file__).resolve().parents[1]
 EXT = ROOT / "extension"
+
+# Reject forbidden artifacts before parsing files (AppleDouble sidecars are binary).
+for p in ROOT.rglob("*"):
+    if p.is_file():
+        assert not p.name.startswith("._"), p
+        assert p.suffix.lower() not in {".wav", ".pem", ".key", ".crx"}, p
+
 manifest = json.loads((EXT / "manifest.json").read_text())
 version = manifest["version"]
 
@@ -39,10 +46,5 @@ lock = json.loads((ROOT / "package-lock.json").read_text())
 assert package["version"] == version
 assert lock["version"] == version
 assert f"CONTENT_VERSION = '{version}'" in (EXT / "content.js").read_text()
-
-for p in ROOT.rglob("*"):
-    if p.is_file():
-        assert not p.name.startswith("._"), p
-        assert p.suffix.lower() not in {".wav", ".pem", ".key", ".crx"}, p
 
 print(f"repository validation PASS (v{version})")

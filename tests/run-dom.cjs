@@ -5,7 +5,7 @@ const {document,window}=parseHTML(fs.readFileSync(path.join(__dirname,'dom.html'
 window.HTMLElement.prototype.getClientRects=function(){return this.style.display==='none'?[]:[{}];};
 window.getComputedStyle=e=>({display:e.style.display||'block',visibility:e.style.visibility||'visible',opacity:e.style.opacity||'1'});
 const context=vm.createContext({document,console});
-for(const file of ['../extension/detector.js','../extension/dom-reader.js','dom-tests.js']) vm.runInContext(fs.readFileSync(path.join(__dirname,file),'utf8'),context,{filename:file});
+for(const file of ['../extension/compatibility.js','../extension/detector.js','../extension/dom-reader.js','dom-tests.js']) vm.runInContext(fs.readFileSync(path.join(__dirname,file),'utf8'),context,{filename:file});
 document.getElementById('run').onclick();
 const results=document.getElementById('results').textContent;
 console.log(results);

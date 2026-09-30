@@ -13,7 +13,7 @@
 
 No OpenAI API key is required. No server is required. Conversation text and the user's WAV file are not sent to an external service.
 
-> **Project status:** active development. Current extension version: **v0.2.12**. The current code has **185 automated regression checks**. Background-tab completion, yellow→blue state, and exactly-once completion playback were rechecked on a real macOS Chrome session on **2026-09-29**.
+> **Project status:** active development. Current working-tree version: **v0.3.0 — Compatibility Shield / 互換性シールド**. Fresh automated results and separate live acceptance status are recorded in [docs/VALIDATION.md](docs/VALIDATION.md). The v0.2.12 live PASS is historical, not evidence for v0.3.0.
 
 ## Why this project exists
 
@@ -33,6 +33,12 @@ This repository turns those edge cases into a small, testable open-source refere
 - Preserves pinned tabs, split-view tabs, existing user groups, and user-modified groups.
 - Rehydrates open ChatGPT tabs after an extension reload.
 - Keeps diagnostics limited to state metadata; it does not store conversation text.
+
+## Compatibility Shield / 互換性シールド
+
+Packaged, strictly validated signal profiles isolate ChatGPT UI changes. The popup reports healthy/degraded/incompatible structural health. Unknown or ambiguous completion structure suppresses completion; supported degraded paths can still notify with independent evidence. Remote DATA activation is disabled with `REMOTE_PROFILE_KEY_UNPROVISIONED`; no remote code, network access or telemetry was added.
+
+See [profile/security design](docs/COMPATIBILITY.md) and the [dedicated-profile synthetic Canary runbook](docs/runbooks/COMPATIBILITY_CANARY.md). Owner login and fresh live audio/UI observations are required before a v0.3.0 live PASS.
 
 ## Privacy and security model
 
@@ -64,7 +70,7 @@ See [SECURITY.md](SECURITY.md), [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), an
 
 ```text
 ChatGPT tab
-  └─ detector.js + dom-reader.js + content.js
+  └─ compatibility.js + detector.js + dom-reader.js + content.js
        │  STATUS / COMPLETE (hashed opaque id)
        ▼
 Manifest V3 service worker (background.js)
@@ -119,13 +125,7 @@ The extension itself has no runtime npm dependencies. `linkedom` is used only by
 
 ### Test coverage
 
-The current suite contains **185 regression checks**:
-
-- 145 Node.js checks covering detection, audio, service-worker recovery, native browser-timer binding, delivery retry, diagnostics, tab colors, migration, permissions, and current timeline UI variants.
-- 26 DOM-model checks.
-- 6 content-script integration checks.
-- 4 hidden-tab model checks.
-- 4 options/permission checks.
+The suite covers state-machine logic, profile/envelope validation, fail-closed compatibility health, the local Canary model, DOM variants, content delivery, hidden-tab behavior and options/permissions. Exact dated counts are in [docs/VALIDATION.md](docs/VALIDATION.md).
 
 The suite specifically covers bugs found during real-device E2E work, including background-tab completion, native timer `Illegal invocation`, visibility-only state transitions, current ChatGPT timeline final controls, service-worker restarts, duplicate delivery, a second job on an already-blue tab, legacy group migration, and manual-stop suppression.
 

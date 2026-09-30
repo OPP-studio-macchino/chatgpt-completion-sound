@@ -8,7 +8,7 @@ const {parseHTML}=require(require.resolve('linkedom',{paths:[process.env.CHAPPY_
  let tick,now=0;const sent=[],listeners=[];
  const chrome={runtime:{sendMessage:async msg=>{sent.push(msg);return msg.target==='settings'?{enabled:false}:{ok:true};},onMessage:{addListener:f=>listeners.push(f)}}};
  const context=vm.createContext({document,window,location:{pathname:'/c/fixture'},Element:window.Element,MutationObserver:window.MutationObserver,chrome,crypto:webcrypto,TextEncoder,Date:{now:()=>now},queueMicrotask,setTimeout:()=>1,clearTimeout:()=>{},setInterval:f=>{tick=f;return 1;},clearInterval:()=>{},console});
- for(const f of ['detector.js','dom-reader.js','content.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../extension',f),'utf8'),context);
+ for(const f of ['compatibility.js','detector.js','dom-reader.js','content.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'../extension',f),'utf8'),context);
  await new Promise(setImmediate);
  const main=document.querySelector('main');
  const busy='<section data-turn="user"><div data-message-author-role="user" data-message-id="user1">private prompt</div></section><button data-testid="stop-button">Stop</button>';

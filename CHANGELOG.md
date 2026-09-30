@@ -6,6 +6,30 @@ All notable changes are documented here.
 
 - Public OSS repository setup, CI, contribution workflow, and security documentation.
 
+## [0.3.0] - 2026-09-30
+
+- Added **Compatibility Shield / 互換性シールド**: packaged named selector groups, strict bounded profile validation, structural health and popup diagnostics.
+- Unknown/ambiguous completion structure fails closed; current timeline final-regenerate fallback, hidden completion, manual stop, retries/deduplication and second jobs retain regression coverage.
+- Added data-only signed-envelope verifier and fallback interfaces. Remote activation stays disabled with `REMOTE_PROFILE_KEY_UNPROVISIONED`; no keys, network permissions, remote code or telemetry added.
+- Added a dedicated-profile synthetic Canary observation page, machine-readable schema, model tests and runbook.
+
+### Fixed
+
+- Repaired stale session-owner recovery to prevent stuck-blue state; recovery requires exact persistent ownership validation, and user-modified groups remain fail-closed.
+- Handle multi-main ChatGPT DOM through structural unique-positive main selection; ties and zero positive matches fail closed.
+- Reject same-version old content hydration unless the protocol handshake matches `compatibility-health-v1`.
+- Use truthful ownership-uncertain wording when ownership cannot be established.
+- Preserve cross-tab independence: one tab can complete/blue while another remains generating/yellow, and stopping the latter causes no second playback.
+
+### Validation
+
+- **258/258 automated checks PASS**: 218 Node + 26 DOM + 6 content + 4 hidden-tab + 4 options. Validator unit tests, repository validation (v0.3.0) and `git diff --check` also passed.
+- **Isolated two-tab live acceptance PASS** in Repair Canary with a separate Chrome profile, extension ID and candidate source: playback delta exactly +1, manual stop caused no second playback, and the completed tab remained blue for at least 5 seconds.
+- User confirmed physical completion audio was heard **exactly once** in isolated Repair Canary.
+- After promotion, original extension files matched the candidate **28/28**, and six promoted regression tests were also byte-equal.
+- Normal Chrome was explicitly reloaded after promotion; separate states remained distinct (working/completed/working), and the user later confirmed audible completion. Exact-once cross-tab proof is from isolated Repair Canary.
+- Release-candidate evidence is dated **2026-09-30**; v0.2.12 evidence remains historical. No commit, push, tag, GitHub Release, store publication or other publication has occurred yet.
+
 ## [0.2.12] - 2026-09-29
 
 ### Fixed

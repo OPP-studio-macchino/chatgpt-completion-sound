@@ -31,3 +31,7 @@ Changes should preserve these constraints unless a maintainer explicitly documen
 7. Permission additions require README and threat-model updates.
 
 See [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
+
+## Compatibility profile trust boundary (v0.3.0)
+
+Compatibility Shield accepts only bounded JSON with exact schemas and per-signal reviewed selector shapes. New bounded values within those shapes can repair minor DOM drift; tag, attribute, operator and presence semantics stay packaged. Known candidates cannot move categories. Structural changes require a package update. Profile data cannot execute code, load HTML, or redirect prose extraction. Explicit internal activation accepts only parser/verifier-produced frozen objects; parsing and selection do not activate them, and future remote callers must verify authenticity first. The owner public signing key is unprovisioned: remote selection fails closed with `REMOTE_PROFILE_KEY_UNPROVISIONED`, production starts packaged, and there is no remote fetch/activation message, additional host permission, CSP relaxation, or telemetry. Verification interfaces enforce expiry and minimum revision; future activation needs reviewed durable high-water/LKG storage and key provisioning. No private keys belong in this repository. See [the compatibility contract](docs/COMPATIBILITY.md).

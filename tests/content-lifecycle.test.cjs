@@ -32,7 +32,7 @@ async function fixture({legacy = false, digest = webcrypto.subtle.digest.bind(we
     constructor(fn) {this.callback = fn; this.observer = new window.MutationObserver(fn);}
     observe(target, options) {this.options = options; observers.add(this); this.observer.observe(target, options);}
     disconnect() {observers.delete(this); this.observer.disconnect();}
-  }, chrome:{runtime:{
+  }, chrome:{runtime:{id:'fixture',
     async sendMessage(msg) {
       if (invalidated) throw Error('Extension context invalidated.');
       sent.push(msg);
@@ -46,7 +46,7 @@ async function fixture({legacy = false, digest = webcrypto.subtle.digest.bind(we
   }}, crypto:{subtle:{digest(...args) {const pending = digest(...args); pendingHashes.push(pending); return pending;}}}, TextEncoder, Date:{now:() => now}, queueMicrotask,
   setInterval(fn) {timers.add(fn); return fn;}, clearInterval:fn => timers.delete(fn)});
   const run = file => vm.runInContext(fs.readFileSync(path.join(__dirname, '../extension', file), 'utf8'), context);
-  run('detector.js'); run('dom-reader.js');
+  run('compatibility.js'); run('detector.js'); run('dom-reader.js');
   const cancel = context.ChappyCompletionDetector.prototype.cancel;
   context.ChappyCompletionDetector.prototype.cancel = function() {cancels++; return cancel.call(this);};
   if (legacy) context.__chappySoundLoadedVersion = '0.2.11';
@@ -60,6 +60,34 @@ async function fixture({legacy = false, digest = webcrypto.subtle.digest.bind(we
     dispose() {context.__chappySoundInstance.dispose();}
   };
 }
+
+test('content version handshake is authenticated, read-only and unavailable after disposal', async t => {
+  const f = await fixture();
+  t.after(() => f.dispose());
+  await f.scan(turn('handshake') + '<button data-testid="stop-button">Stop</button>', 100);
+  await f.scan(turn('handshake', true), 200);
+  await f.scan(null, 2200);
+  await f.settleHashes();
+  assert.equal(f.sent.filter(message => message.type === 'STATUS').at(-1).state, 'complete');
+  const before = JSON.stringify(diagnostics(f)), sent = f.sent.length;
+  const [listener] = f.messages;
+  let reply;
+  assert.equal(listener({type:'GET_CONTENT_VERSION'}, {id:'fixture'}, value => {reply=value;}), false);
+  assert.deepEqual(JSON.parse(JSON.stringify(reply)), {ok:true,version:'0.3.0',protocol:require('../extension/compatibility.js').CONTENT_PROTOCOL});
+  assert.equal(JSON.stringify(diagnostics(f)), before);assert.equal(f.sent.length, sent);
+  for (const sender of [{}, {id:'foreign'}]) {
+    reply=undefined;
+    listener({type:'GET_CONTENT_VERSION'}, sender, value => {reply=value;});
+    assert.equal(reply, undefined);
+  }
+  f.context.chrome.runtime.id=undefined;reply=undefined;
+  listener({type:'GET_CONTENT_VERSION'}, {id:'fixture'}, value => {reply=value;});
+  assert.equal(reply, undefined);
+  f.context.chrome.runtime.id='fixture';
+  f.dispose();reply=undefined;
+  listener({type:'GET_CONTENT_VERSION'}, {id:'fixture'}, value => {reply=value;});
+  assert.equal(reply, undefined);
+});
 
 test('characterData-only records schedule a private mutation scan without heartbeat after reinjection', async t => {
   const f = await fixture();
@@ -174,7 +202,7 @@ for (const failure of ['missing', 'not-ok', 'threw']) {
 test('stale in-flight STATUS acknowledgement cannot clear a newer pending desired state', async t => {
   let release, generatingAttempts = 0;
   const f = await fixture({deliveryReply:msg => {
-    if (msg.state === 'watching') return new Promise(resolve => {release = resolve;});
+    if (msg.state === 'waiting') return new Promise(resolve => {release = resolve;});
     if (msg.state === 'generating' && ++generatingAttempts === 1) return {ok:false};
     return {ok:true};
   }});
@@ -258,7 +286,7 @@ test('deliveryHistory caps at 32 and reinjection discards old in-flight delivery
   f.context.chrome.runtime.sendMessage = send;
   await f.inject();
   const reset = diagnostics(f).deliveryHistory;
-  assert.deepEqual(reset, [{sequence:1, kind:'status', state:'watching', attempt:1, result:'reply-ok'}]);
+  assert.deepEqual(reset, [{sequence:1, kind:'status', state:'waiting', attempt:1, result:'reply-ok'}]);
   release({ok:true});
   await flush();
   assert.deepEqual(diagnostics(f).deliveryHistory, reset);
@@ -667,18 +695,20 @@ test('lifecycle async hashing preserves scan order, skips failures and discards 
   assert.equal(diagnostics(f).unitLifecycleHistory[0].sequence, 1);
 });
 
-test('multiple mains retain first-main selection and expose scoped counts', async () => {
+test('multiple mains expose counts and busy health from the selected conversation main', async () => {
   const f = await fixture();
   f.document.body.innerHTML = '<main></main><main>' + turn('second') + '<button data-testid="stop-button">Stop</button></main>';
   await f.scan(null, 100);
   const event = diagnostics(f).trace.at(-1);
   assert.equal(event.dom.mainCount, 2);
-  assert.equal(event.dom.selectedMainIndex, 0);
+  assert.equal(event.dom.selectedMainIndex, 1);
   assert.equal(event.dom.documentConversationWrapperCount, 1);
-  assert.equal(event.dom.conversationWrapperCount, 0);
-  assert.equal(event.dom.turnSelectorCount, 0);
-  assert.equal(event.dom.stopMatchedCount, 0);
-  assert.equal(event.state, 'watching');
+  assert.equal(event.dom.conversationWrapperCount, 1);
+  assert.equal(event.dom.turnSelectorCount, 1);
+  assert.equal(event.dom.stopMatchedCount, 1);
+  assert.equal(event.dom.busy, true);
+  assert.notEqual(event.dom.compatibility.state, 'incompatible');
+  assert.ok(event.dom.compatibility.matched.includes('stop'));
   f.dispose();
 });
 

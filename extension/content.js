@@ -1,11 +1,12 @@
 (() => {
   'use strict';
-  const CONTENT_VERSION = '0.2.12';
+  const CONTENT_VERSION = '0.3.0';
   globalThis.__chappySoundInstance?.dispose();
   globalThis.__chappySoundLoadedVersion = CONTENT_VERSION;
   globalThis.__chappySoundLoaded = true;
   const detector = new ChappyCompletionDetector();
   let enabled = false, disposed = false, scheduled = false, lastStatus = '', lastVisibility = '', lastReport = 0;
+  let compatibilityHealth = null;
   let completedIdentity = '', completedRoute = '';
   let pendingComplete = null, completeSending = false;
   let pendingStatus = null;
@@ -184,12 +185,13 @@
         if (!disposed && trace.includes(event)) event.identities[name] = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2,'0')).join('').slice(0,12);
       }).catch(() => {});
     }});
+    compatibilityHealth = snap.compatibility;
     const completed = detector.step(snap, Date.now(), event.detector);
     const identity = snap.turn || snap.message || '';
     if (completed) {completedIdentity = completed; completedRoute = snap.route;}
-    if (!enabled || snap.error || snap.blocked || identity !== completedIdentity || snap.route !== completedRoute) completedIdentity = '';
+    if (!enabled || snap.error || snap.blocked || snap.compatibility?.state === 'incompatible' || identity !== completedIdentity || snap.route !== completedRoute) completedIdentity = '';
     const working = (snap.busy || detector.active) && !detector.cancelled;
-    const state = !enabled ? 'off' : snap.blocked ? 'waiting' : snap.error ? 'error' : working ? 'generating' : completedIdentity ? 'complete' : 'watching';
+    const state = !enabled ? 'off' : snap.blocked ? 'waiting' : snap.error ? 'error' : working ? 'generating' : snap.compatibility?.state === 'incompatible' ? 'waiting' : completedIdentity ? 'complete' : 'watching';
     event.state = state;
     void reportStatus(state, event.sequence, event.status);
     if (completed) {
@@ -205,7 +207,7 @@
     } else if (pendingComplete) {
       void deliverComplete(event.sequence);
     }
-    return {ok:true,busy:snap.busy,ready:snap.ready,visibility:document.visibilityState};
+    return {ok:true,busy:snap.busy,ready:snap.ready,compatibility:compatibilityHealth,visibility:document.visibilityState};
   }
   // Hidden-page timer throttling must not delay a DOM mutation notification.
   function schedule() { if (!disposed && !scheduled) {scheduled=true;queueMicrotask(() => {scheduled=false;void scan();});} }
@@ -237,7 +239,11 @@
   function onPageHide() {if (disposed) return; detector.reset(); completedIdentity = ''; void reportStatus('watching', sequence);}
   function onMessage(msg, sender, reply) {
     if (disposed) return false;
-    if (msg?.type === 'GET_DIAGNOSTICS') {reply({ok:true,...JSON.parse(JSON.stringify({deliveryHistory, unitLifecycleHistory, structureHistory, unitSummaries, trace}))});return false;}
+    if (msg?.type === 'GET_CONTENT_VERSION') {
+      if (chrome.runtime.id && sender.id === chrome.runtime.id) reply({ok:true,version:CONTENT_VERSION,protocol:ChappyCompatibility.CONTENT_PROTOCOL});
+      return false;
+    }
+    if (msg?.type === 'GET_DIAGNOSTICS') {reply({ok:true,...JSON.parse(JSON.stringify({compatibility:compatibilityHealth, deliveryHistory, unitLifecycleHistory, structureHistory, unitSummaries, trace}))});return false;}
     if (msg?.type === 'SCAN_NOW' && !disposed) {scan('scan-now').then(reply).catch(() => reply({ok:false}));return true;}
     if (msg?.type === 'SET_ENABLED') {enabled = msg.enabled === true; detector.reset(); completedIdentity = ''; schedule();}
     return false;

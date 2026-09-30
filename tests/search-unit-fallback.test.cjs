@@ -28,7 +28,7 @@ async function fixture(t, html = history) {
       return Uint8Array.from(createHash('sha256').update(bytes).digest()).buffer;
     }}}, TextEncoder, Date:{now:() => now}, queueMicrotask,
     setInterval(fn) {tick = fn; return 1;}, clearInterval() {}});
-  for (const file of ['detector.js', 'dom-reader.js', 'content.js']) {
+  for (const file of ['compatibility.js','detector.js', 'dom-reader.js', 'content.js']) {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../extension', file), 'utf8'), context);
   }
   t.after(() => context.__chappySoundInstance.dispose());
@@ -65,6 +65,38 @@ test('historical search units establish a route-scoped baseline without notifyin
   await f.scan(null, 5000);
   assert.equal(f.state(), 'watching');
   assert.equal(f.completions().length, 0);
+});
+
+test('duplicate latest assistant uses the outer representative and retains its final marker', async t => {
+  const f = await fixture(t, unit('private-user') + unit('private-answer',
+    '<div data-content-search-unit-key="private-answer"></div>' + copy));
+  assert.equal(f.read().ready, true);
+  assert.equal(f.read().user, '/c/search-fixture\u001fsearch-unit\u001fprivate-user');
+  assert.equal(f.read().turn, '/c/search-fixture\u001fsearch-unit\u001fprivate-answer');
+});
+
+test('normalized live timeline completes once after settling and exports no opaque keys', async t => {
+  const timeline = (answer = false, final = false) => '<div data-request-input-activity-root><div data-app-action-timeline-scroll><section><div>' +
+    unit('private-live-input', '<div data-content-search-unit-key="private-live-input"></div>') +
+    (answer ? unit('private-live-answer') : '') + '</div>' +
+    (final ? copy + '<button aria-label="回答を再生成">Regenerate</button>' : '') +
+    '</section></div><form><textarea></textarea></form></div>';
+  const f = await fixture(t);
+  await f.scan(timeline(), 100);
+  await f.scan(timeline(true), 200);
+  assert.equal(f.state(), 'generating');
+  assert.equal(f.read().ready, false);
+  await f.scan(timeline(true, true), 300);
+  assert.equal(f.read().ready, true);
+  assert.equal(f.read().compatibility.reasons.includes('REQUEST_AMBIGUOUS'), false);
+  await f.scan(null, 2299);
+  assert.equal(f.completions().length, 0);
+  await f.scan(null, 2300);
+  assert.equal(f.state(), 'complete');
+  await f.scan(null, 6000);
+  assert.equal(f.completions().length, 1);
+  assert.match(f.completions()[0].key, /^[a-f0-9]{64}$/);
+  assert.equal(JSON.stringify({sent:f.sent, diagnostic:f.diagnostics()}).includes('private-'), false);
 });
 
 test('new user, transient key replacement, and same assistant gaining copy complete once per job', async t => {

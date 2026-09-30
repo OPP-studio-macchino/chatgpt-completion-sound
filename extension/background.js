@@ -1,5 +1,6 @@
 import './tab-colors.js';
 import './background-watch.js';
+import './compatibility.js';
 
 const DEFAULTS = {enabled:false, soundName:'', volume:0.8, playedCount:0, lastError:''};
 const tabColors = new globalThis.ChappyTabColors(chrome);
@@ -27,7 +28,17 @@ async function hydrateOpenChats() {
     // tab id; host_permissions lets injection succeed only on chatgpt.com.
     const tabs = await chrome.tabs.query({});
     await Promise.all(tabs.filter(t=>Number.isInteger(t.id)).map(async t => {
-      try {await chrome.scripting.executeScript({target:{tabId:t.id,frameIds:[0]},files:['detector.js','dom-reader.js','content.js']});}
+      // Worker restarts must preserve the live detector and its settled completion.
+      let timeout;
+      try {
+        const reply = await Promise.race([
+          chrome.tabs.sendMessage(t.id,{type:'GET_CONTENT_VERSION'},{frameId:0}),
+          new Promise(resolve => {timeout=setTimeout(() => resolve(null),5000);})
+        ]);
+        if (reply?.ok === true && reply.version === chrome.runtime.getManifest().version &&
+            reply.protocol === globalThis.ChappyCompatibility.CONTENT_PROTOCOL) return;
+      } catch {} finally {clearTimeout(timeout);}
+      try {await chrome.scripting.executeScript({target:{tabId:t.id,frameIds:[0]},files:['compatibility.js','detector.js','dom-reader.js','content.js']});}
       catch {}
     }));
   }

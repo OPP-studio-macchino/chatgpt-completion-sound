@@ -35,7 +35,7 @@ async function setup() {
   const contentChrome={runtime:{id:'fixture',sendMessage:msg=>deliver(backgroundListeners,msg,sender),onMessage:{addListener:fn=>contentListeners.push(fn)}}};
   const content=vm.createContext({document,window,location:{pathname:'/c/fixture'},Element:window.Element,MutationObserver:window.MutationObserver,chrome:contentChrome,crypto:webcrypto,TextEncoder,Date:{now:clock.now},queueMicrotask,
     setTimeout:fn=>{pageTimers.push(fn);return pageTimers.length;},setInterval:fn=>{pageTimers.push(fn);return pageTimers.length;},clearTimeout:()=>{},clearInterval:()=>{},console});
-  for(const name of ['detector.js','dom-reader.js','content.js'])vm.runInContext(fs.readFileSync(path.join(ROOT,name),'utf8'),content);
+  for(const name of ['compatibility.js','detector.js','dom-reader.js','content.js'])vm.runInContext(fs.readFileSync(path.join(ROOT,name),'utf8'),content);
   await flush();
   const main=document.querySelector('main');main.innerHTML=busy;await flush();
   assert.equal(f.groups.get(f.tabs.get(1).groupId).color,'yellow');

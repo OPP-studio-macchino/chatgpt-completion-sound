@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Compatibility Shield — Maintainer Canary</title><link rel="stylesheet" href="style.css"></head>
+<body><main>
+<h1>Compatibility Shield / 互換性シールド — Canary</h1>
+<p>Maintainer only. Use a dedicated Chrome profile with exactly one synthetic ChatGPT test tab, local non-private audio, automatic notifications and tab colors enabled. Sign in manually; keep the browser profile outside the repository.</p>
+<p>This page observes only. It does not submit prompts, focus tabs, play audio, or change groups. Open this page in a separate window before starting.</p>
+<p>Synthetic prompt: “Write a numbered list of 100 imaginary planet names. Use no personal information.”</p>
+<p>Connect one idle ChatGPT tab, start recording here, submit the synthetic prompt there, then return here while it is still generating. Keep the target hidden and unfocused until recording finishes.</p>
+<button id="start">Start fresh observation</button><button id="stop" disabled>Stop recording</button>
+<label><input id="heard" type="checkbox" disabled>I heard exactly one completion sound during this run.</label>
+<p id="status" role="status">PENDING — dedicated owner login and live observations required</p>
+<p>Copy the JSON only. Do not attach screenshots, browser profiles, private audio, cookies, or chat transcripts. No evidence is uploaded or automatically saved.</p>
+<textarea id="result" rows="24" cols="90" readonly aria-label="Machine-readable Canary result"></textarea>
+</main><script src="compatibility.js"></script><script src="canary-model.js"></script><script src="canary.js"></script></body></html>

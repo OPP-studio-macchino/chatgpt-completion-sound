@@ -45,6 +45,11 @@
         this.route = s.route;
         this.user = s.user;
         if (!s.enabled || s.error || s.blocked) { this.reset(identity); return null; }
+        if (s.compatibility?.state === 'incompatible') {
+          this.candidate = '';
+          if (s.busy && !this.cancelled) this.active = true;
+          return null;
+        }
         if (identity && this.seen.has(identity) && (s.busy || s.ready)) { this.reset(identity); return null; }
         // A new opaque turn without final controls is a fallback for missing busy/user metadata.
         if (!this.active && !this.cancelled && turnChanged && !s.ready && !this.seen.has(identity)) this.active = true;

@@ -20,7 +20,7 @@ test('popup reads only GET_DIAGNOSTICS, displays unitLifecycleHistory first and 
   const context = vm.createContext({document, chrome:{
     storage:{local:{get:async () => ({})}, session:{get:async () => ({})}, onChanged:{addListener() {}}},
     permissions:{contains:async () => false},
-    runtime:{getManifest:() => ({version:'0.2.12'})},
+    runtime:{getManifest:() => ({version:'0.3.0'})},
     tabs:{query:async () => [{id:17}], sendMessage:async (id, message) => {
       requests.push({id, message});
       if (fail) throw Error('synthetic private exception');
@@ -31,7 +31,7 @@ test('popup reads only GET_DIAGNOSTICS, displays unitLifecycleHistory first and 
   }});
   for (const file of ['diagnostics.js','popup.js']) vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context);
   await new Promise(setImmediate);
-  await context.renderDiagnostics();
+  // Opening the popup now also reads compatibility health without a probe/mutation.
   assert.equal(JSON.stringify(requests), JSON.stringify([{id:17, message:{type:'GET_DIAGNOSTICS'}}]));
   const text = document.getElementById('diagnosticTrace').textContent;
   assert.match(text, /"sequence": 4/);
