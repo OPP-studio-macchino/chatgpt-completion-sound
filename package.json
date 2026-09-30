@@ -1,6 +1,6 @@
 {
   "name": "chappy-completion-sound",
-  "version": "0.2.9",
+  "version": "0.3.0",
   "private": false,
   "scripts": {
     "test": "node --test tests/*.test.cjs && node tests/run-dom.cjs && node tests/run-content.cjs && node tests/run-hidden.cjs && node tests/run-options.cjs",

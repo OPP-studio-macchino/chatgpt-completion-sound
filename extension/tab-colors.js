@@ -73,7 +73,9 @@
     async rememberOwner(tabId, owner) {await this.api.storage.local.set({[this.ownerKey(tabId)]:owner});}
     async forgetOwner(tabId) {await this.api.storage.local.remove(this.ownerKey(tabId));}
     async recoverOwner(tabId, record) {
-      if (record.owner || record.userOverride) return;
+      if (record.userOverride || (record.owner && await this.owned(tabId, record.owner))) return;
+      // A failed session save can leave an older snapshot than our persisted owner.
+      // Recover only from that record and exact current ownership, never appearance.
       const key = this.ownerKey(tabId);
       const owner = (await this.api.storage.local.get(key))[key];
       if (!owner) return;

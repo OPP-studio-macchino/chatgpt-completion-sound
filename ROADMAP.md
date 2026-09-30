@@ -1,5 +1,14 @@
 # Roadmap
 
+## Compatibility Shield v0.3.0
+
+- [x] Packaged signal profiles, strict data validation and privacy-safe health.
+- [x] Fail-closed reader/detector integration and regression coverage.
+- [x] Remote envelope/verifier/fallback interfaces, disabled without owner public key.
+- [x] Local synthetic Canary harness, JSON schema and dedicated-profile runbook.
+- [ ] Fresh owner-authenticated v0.3.0 real-Chrome Canary and physical-audio evidence.
+- [ ] Separately reviewed remote enablement: owner public key, endpoint policy, durable anti-rollback/LKG storage, key rotation and recovery. No remote activation in v0.3.0.
+
 ## Near term
 
 - Stabilize the public OSS workflow and CI.

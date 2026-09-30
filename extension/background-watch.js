@@ -6,8 +6,9 @@
     static ALARM = 'chappy-active-jobs';
     constructor(api, clock = {}) {
       this.api = api;
-      this.later = clock.setTimeout || setTimeout;
-      this.cancel = clock.clearTimeout || clearTimeout;
+      // Native browser timers require their global receiver, unlike the test clock.
+      this.later = (clock.setTimeout || setTimeout).bind(root);
+      this.cancel = (clock.clearTimeout || clearTimeout).bind(root);
       this.now = clock.now || Date.now;
       this.timers = new Map();
       this.running = new Set();

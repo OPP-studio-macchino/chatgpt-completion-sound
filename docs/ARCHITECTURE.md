@@ -4,6 +4,9 @@ ChatGPT Completion Sound is intentionally unbundled and dependency-light at runt
 
 ## Runtime components
 
+### `compatibility.js`
+Packaged Compatibility Shield signal candidates, strict data-only profile/envelope validation, WebCrypto verifier interfaces and healthy/degraded/incompatible structural health. Loaded before reader/content at initial injection and reinjection. Production uses the frozen packaged profile; remote activation is disabled until an owner public key and reviewed transport/storage integration exist. See [COMPATIBILITY.md](COMPATIBILITY.md).
+
 ### `detector.js`
 A small state machine. It turns DOM metadata into lifecycle transitions without receiving conversation prose.
 
@@ -31,7 +34,7 @@ Plays the user-selected local WAV and returns an acknowledgement only after play
 2. Content reports `STATUS: generating`.
 3. Optional tab group becomes yellow.
 4. The detector observes a stable final assistant message.
-5. Content reports `STATUS: complete` and a hashed completion key.
+5. Incompatible structure blocks completion at both the reader and detector. Content reports `STATUS: complete` and a hashed completion key.
 6. Content retries `COMPLETE` delivery until acknowledged.
 7. Background deduplicates the key.
 8. Optional tab group becomes blue.
@@ -44,3 +47,7 @@ Hidden-page timers can be throttled. The extension therefore does not rely on pa
 ## Testing strategy
 
 The project combines state-machine tests, Chrome API fixtures, DOM model tests, content-script integration tests, hidden-tab models, and real-device E2E checks. Test doubles prove deterministic logic; real-device checks remain necessary for browser scheduling, audio output, and UI rendering behavior.
+
+## Local maintainer Canary
+
+`canary-model.js` implements bounded observation stages; `canary.html/js` reads the connected synthetic test tab's status/health, Chrome group color and focus, and local playback count. It never drives completion or Chrome state. Human audibility confirmation and a stable five-second observation are required for PASS. [Runbook](runbooks/COMPATIBILITY_CANARY.md).

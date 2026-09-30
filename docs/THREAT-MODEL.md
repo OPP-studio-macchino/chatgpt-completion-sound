@@ -15,6 +15,7 @@
 3. **Extension page → service worker**: privileged test actions are restricted to extension-owned pages.
 4. **Service worker → offscreen document**: only local audio data is passed for playback.
 5. **Extension → Chrome tabGroups API**: group ownership must not be inferred too broadly.
+6. **Chrome webRequest metadata → service worker**: transport completion is untrusted as a task-completion signal and may only trigger a DOM re-check.
 
 ## Primary risks and mitigations
 
@@ -34,6 +35,10 @@ The service worker reserves seen completion keys before playback; content retrie
 
 The detector has an explicit cancellation path. Manual stop clears the active completion candidate and must not produce blue state or completion audio.
 
+### False completion from network transport
+
+`webRequest.onCompleted` is treated only as a hint that an active background job should be checked again. The extension does not inspect request/response bodies or headers, and a transport completion event cannot directly set a tab blue or play audio. Normal DOM completion state and deduplication remain authoritative.
+
 ### Tab-group takeover
 
 Color support is optional. The extension manages only groups it owns or conservatively migrates from its own canonical historical state. Pinned tabs, split-view tabs, shared groups, ordinary existing groups, and user-modified groups are left alone.
@@ -48,3 +53,11 @@ Manifest V3 workers can suspend. Active jobs are persisted in session state, Chr
 - Malicious Chrome extensions with equivalent local privileges.
 - Notifications while Chrome is closed, the computer is asleep, or a tab is fully discarded and not observable.
 - Guaranteeing compatibility with future ChatGPT DOM changes without maintenance.
+
+## Compatibility Shield data boundary — v0.3.0
+
+Untrusted profile JSON is size-bounded, exact-schema checked and limited to named groups of packaged selector shapes. New bounded values within pre-approved shapes support minor drift; tag, attribute, operator and presence semantics cannot change or migrate between groups, and existing packaged candidates cannot move categories. Structural semantic changes require a package update. No text extraction instructions, expressions, remote HTML, or executable code are accepted. Health exports only fixed categories/reasons, active validated profile/revision and a bounded timestamp. Explicit internal activation checks parser/verifier object provenance; it is not remotely exposed. Parsing/selection leave active state unchanged, and production starts packaged. Future remote callers must verify signatures before activation. Unknown/ambiguous structure suppresses normal completion; degraded evidence must still satisfy packaged detector logic.
+
+Remote envelopes have signature, time and revision checks, but the pinned public key is absent and production remote selection is disabled. No remote host/CSP expansion or upload exists. LKG revalidation and packaged fallback are defined by the verifier/selector interface; durable rollback protection must be reviewed before enabling remote persistence/transport. See [COMPATIBILITY.md](COMPATIBILITY.md).
+
+The opt-in local Canary page reads existing extension diagnostics and Chrome tab/group/focus metadata. Its projected, bounded JSON excludes conversation prose, URL/title, tab IDs, cookies, credentials and audio. It never sends prompts, plays audio, groups tabs or writes evidence automatically. A dedicated owner-authenticated test profile is required; exported browser profiles and private conversations are prohibited as evidence.

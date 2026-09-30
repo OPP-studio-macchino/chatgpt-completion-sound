@@ -1,15 +1,16 @@
 {
   "manifest_version": 3,
   "name": "チャッピー完了音",
-  "version": "0.2.9",
-  "version_name": "0.2.9 検証用修正版",
+  "version": "0.3.0",
+  "version_name": "0.3.0 Compatibility Shield / 互換性シールド",
   "description": "開いているChatGPTの応答終了を音声とタブの色でお知らせ。作業中は黄色、完了は青色。好きなWAVを設定できます。",
   "minimum_chrome_version": "120",
   "permissions": [
     "storage",
     "offscreen",
     "alarms",
-    "scripting"
+    "scripting",
+    "webRequest"
   ],
   "optional_permissions": [
     "tabGroups"
@@ -34,6 +35,7 @@
         "https://chatgpt.com/*"
       ],
       "js": [
+        "compatibility.js",
         "detector.js",
         "dom-reader.js",
         "content.js"

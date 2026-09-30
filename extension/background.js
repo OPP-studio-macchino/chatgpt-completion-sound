@@ -1,11 +1,25 @@
 import './tab-colors.js';
 import './background-watch.js';
+import './compatibility.js';
 
 const DEFAULTS = {enabled:false, soundName:'', volume:0.8, playedCount:0, lastError:''};
 const tabColors = new globalThis.ChappyTabColors(chrome);
 const backgroundWatch = new globalThis.ChappyBackgroundWatch(chrome, {setTimeout,clearTimeout});
 let creating, queue = Promise.resolve();
 let hydrationStarted = false;
+const NETWORK_COMPLETION_PATHS = new Set([
+  '/backend-api/f/conversation',
+  '/backend-api/conversation',
+  '/backend-api/codex/responses'
+]);
+function candidateNetworkCompletion(details) {
+  if (!Number.isInteger(details?.tabId) || details.tabId < 0 || details.frameId !== 0 ||
+      details.method !== 'POST' || details.statusCode < 200 || details.statusCode >= 300) return false;
+  try {
+    const url = new URL(details.url);
+    return url.origin === 'https://chatgpt.com' && NETWORK_COMPLETION_PATHS.has(url.pathname);
+  } catch { return false; }
+}
 async function hydrateOpenChats() {
   if (hydrationStarted) return;
   hydrationStarted = true;
@@ -14,7 +28,17 @@ async function hydrateOpenChats() {
     // tab id; host_permissions lets injection succeed only on chatgpt.com.
     const tabs = await chrome.tabs.query({});
     await Promise.all(tabs.filter(t=>Number.isInteger(t.id)).map(async t => {
-      try {await chrome.scripting.executeScript({target:{tabId:t.id,frameIds:[0]},files:['detector.js','dom-reader.js','content.js']});}
+      // Worker restarts must preserve the live detector and its settled completion.
+      let timeout;
+      try {
+        const reply = await Promise.race([
+          chrome.tabs.sendMessage(t.id,{type:'GET_CONTENT_VERSION'},{frameId:0}),
+          new Promise(resolve => {timeout=setTimeout(() => resolve(null),5000);})
+        ]);
+        if (reply?.ok === true && reply.version === chrome.runtime.getManifest().version &&
+            reply.protocol === globalThis.ChappyCompatibility.CONTENT_PROTOCOL) return;
+      } catch {} finally {clearTimeout(timeout);}
+      try {await chrome.scripting.executeScript({target:{tabId:t.id,frameIds:[0]},files:['compatibility.js','detector.js','dom-reader.js','content.js']});}
       catch {}
     }));
   }
@@ -63,9 +87,18 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg.type === 'STATUS' && chatPage(sender)) {
     const allowed = ['off','waiting','error','generating','complete','watching'];
     if (!allowed.includes(msg.state)) {reply({ok:false,error:'Invalid state'}); return false;}
+    const id = sender.tab.id;
     const metadata = {version:/^\d+\.\d+\.\d+$/.test(msg.version || '') ? msg.version : '',visibility:msg.visibility === 'hidden' ? 'hidden' : 'visible'};
-    Promise.all([tabColors.set(sender.tab.id, msg.state, metadata),backgroundWatch.track(sender.tab.id, msg.state, sender.documentId)])
+    Promise.all([tabColors.set(id, msg.state, metadata),backgroundWatch.track(id, msg.state, sender.documentId)])
       .then(() => reply({ok:true})).catch(() => reply({ok:false}));
+    return true;
+  }
+  if (msg.type === 'CANCEL' && chatPage(sender)) {
+    const id = sender.tab.id;
+    Promise.all([
+      tabColors.set(id, 'watching', {version:/^\d+\.\d+\.\d+$/.test(msg.version || '') ? msg.version : '',visibility:msg.visibility === 'hidden' ? 'hidden' : 'visible'}),
+      backgroundWatch.track(id, 'watching', sender.documentId)
+    ]).then(() => reply({ok:true})).catch(() => reply({ok:false}));
     return true;
   }
   let action;
@@ -85,6 +118,11 @@ chrome.tabs.onRemoved.addListener(id => {void tabColors.remove(id);void backgrou
 chrome.tabs.onUpdated.addListener((id, changes) => {
   if (changes.status === 'loading') {void tabColors.reset(id);void backgroundWatch.remove(id);}
 });
+// Transport completion only prompts a DOM check; it is not task completion.
+chrome.webRequest?.onCompleted?.addListener(details => {
+  if (candidateNetworkCompletion(details)) void backgroundWatch.probe(details.tabId).catch(() => {});
+},
+  {urls:['https://chatgpt.com/backend-api/*']});
 chrome.runtime.onInstalled.addListener(() => {
   void chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'}).catch(() => {});
   void hydrateOpenChats().catch(() => {});

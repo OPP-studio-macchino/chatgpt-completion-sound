@@ -13,7 +13,7 @@
 
 No OpenAI API key is required. No server is required. Conversation text and the user's WAV file are not sent to an external service.
 
-> **Project status:** active development. Current extension version: **v0.2.9**. The current code has **111 automated regression checks** and has also been exercised with real-device E2E tests on macOS Chrome for foreground completion, background completion without refocusing the tab, repeated jobs on the same tab, physical audio output, and manual-stop suppression.
+> **Project status:** active development. Current working-tree version: **v0.3.0 — Compatibility Shield / 互換性シールド**. Fresh automated results and separate live acceptance status are recorded in [docs/VALIDATION.md](docs/VALIDATION.md). The v0.2.12 live PASS is historical, not evidence for v0.3.0.
 
 ## Why this project exists
 
@@ -33,6 +33,12 @@ This repository turns those edge cases into a small, testable open-source refere
 - Preserves pinned tabs, split-view tabs, existing user groups, and user-modified groups.
 - Rehydrates open ChatGPT tabs after an extension reload.
 - Keeps diagnostics limited to state metadata; it does not store conversation text.
+
+## Compatibility Shield / 互換性シールド
+
+Packaged, strictly validated signal profiles isolate ChatGPT UI changes. The popup reports healthy/degraded/incompatible structural health. Unknown or ambiguous completion structure suppresses completion; supported degraded paths can still notify with independent evidence. Remote DATA activation is disabled with `REMOTE_PROFILE_KEY_UNPROVISIONED`; no remote code, network access or telemetry was added.
+
+See [profile/security design](docs/COMPATIBILITY.md) and the [dedicated-profile synthetic Canary runbook](docs/runbooks/COMPATIBILITY_CANARY.md). Owner login and fresh live audio/UI observations are required before a v0.3.0 live PASS.
 
 ## Privacy and security model
 
@@ -56,6 +62,7 @@ See [SECURITY.md](SECURITY.md), [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), an
 | `offscreen` | Plays completion audio from a Manifest V3 background context. |
 | `alarms` | Recovers monitoring after service-worker suspension. |
 | `scripting` | Re-injects the current content scripts into already-open ChatGPT tabs after extension reload. |
+| `webRequest` | Observes completion metadata for ChatGPT requests only to trigger a DOM re-check in background tabs; it does not read request/response bodies or treat transport completion as task completion. |
 | `https://chatgpt.com/*` | Restricts page access to ChatGPT. |
 | optional `tabGroups` | Adds yellow/blue visual state when explicitly enabled by the user. |
 
@@ -63,7 +70,7 @@ See [SECURITY.md](SECURITY.md), [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), an
 
 ```text
 ChatGPT tab
-  └─ detector.js + dom-reader.js + content.js
+  └─ compatibility.js + detector.js + dom-reader.js + content.js
        │  STATUS / COMPLETE (hashed opaque id)
        ▼
 Manifest V3 service worker (background.js)
@@ -118,15 +125,9 @@ The extension itself has no runtime npm dependencies. `linkedom` is used only by
 
 ### Test coverage
 
-The current suite contains **111 regression checks**:
+The suite covers state-machine logic, profile/envelope validation, fail-closed compatibility health, the local Canary model, DOM variants, content delivery, hidden-tab behavior and options/permissions. Exact dated counts are in [docs/VALIDATION.md](docs/VALIDATION.md).
 
-- 80 Node.js checks covering detection, audio, service-worker recovery, delivery retry, diagnostics, tab colors, migration, and permissions.
-- 18 DOM-model checks.
-- 5 content-script integration checks.
-- 4 hidden-tab model checks.
-- 4 options/permission checks.
-
-The suite specifically covers bugs found during real-device E2E work, including background-tab completion, service-worker restarts, duplicate delivery, a second job on an already-blue tab, legacy group migration, and manual-stop suppression.
+The suite specifically covers bugs found during real-device E2E work, including background-tab completion, native timer `Illegal invocation`, visibility-only state transitions, current ChatGPT timeline final controls, service-worker restarts, duplicate delivery, a second job on an already-blue tab, legacy group migration, and manual-stop suppression.
 
 See [docs/VALIDATION.md](docs/VALIDATION.md) for the current automated and real-device acceptance baseline.
 

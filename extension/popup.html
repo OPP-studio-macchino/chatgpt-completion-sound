@@ -5,11 +5,13 @@
   <h1>チャッピー完了音</h1><p id="summary">確認中…</p>
   <label class="switch"><input id="enabled" type="checkbox">自動通知</label>
   <section class="diagnostic" aria-labelledby="tabHeading">
-    <h2 id="tabHeading">このタブの状態</h2>
+    <h2 id="tabHeading">このタブの状態（保存済み STATUS）</h2>
+    <p id="compatibilityHealth" role="status">互換性シールド：確認中…</p>
     <p id="tabStatus" role="status">確認中…</p>
     <p id="tabDetail"></p><p id="tabProbe" class="muted"></p><p id="tabColor"></p>
   </section>
   <details class="other-tabs"><summary>ほかのタブの状態</summary><p class="muted">対象タブへ切り替えずに確認できます。</p><div id="otherTabs"></div></details>
+  <details id="liveDiagnostics"><summary>診断（本文は取得しません）</summary><p class="muted">ライブトレース・最新8件（保存済み STATUS とは別）</p><button id="refreshDiagnostics" type="button">診断を更新</button><pre id="diagnosticTrace" role="status"></pre></details>
   <p id="stats" class="muted"></p><p id="error" role="status" class="error"></p>
   <button id="settings">音声と色の設定</button><footer id="version"></footer>
   <script src="diagnostics.js"></script><script src="popup.js"></script>

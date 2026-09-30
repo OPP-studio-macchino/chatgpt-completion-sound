@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Compatibility Shield local Canary observation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "extensionVersion", "status", "reason", "startedAt", "humanHeardOnce", "stages", "samples"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "extensionVersion": {"const": "0.3.0"},
+    "status": {"enum": ["pending", "pass", "fail"]},
+    "reason": {"enum": ["WAITING_FOR_BASELINE", "WAITING_FOR_GENERATION", "WAITING_FOR_BACKGROUND", "WAITING_FOR_COMPLETION", "WAITING_FOR_QUIET_WINDOW_AND_HUMAN", "OBSERVED", "SAMPLE_INVALID", "HEALTH_INVALID", "TIMEOUT", "DUPLICATE_PLAYBACK", "BASELINE_INVALID", "PLAYBACK_BEFORE_BACKGROUND", "COMPLETED_BEFORE_BACKGROUND", "TARGET_REFOCUSED", "JOB_INTERRUPTED", "COMPLETION_UNSTABLE", "OBSERVATION_UNAVAILABLE", "PRECONDITION_REQUIRED", "STOPPED_PENDING"]},
+    "startedAt": {"$ref": "#/$defs/time"},
+    "humanHeardOnce": {"type": "boolean"},
+    "stages": {"type": "array", "maxItems": 4, "items": {
+      "type": "object", "additionalProperties": false, "required": ["name", "at"],
+      "properties": {"name": {"enum": ["waiting", "generating-yellow", "background-unfocused", "complete-blue-once"]}, "at": {"$ref": "#/$defs/time"}}
+    }},
+    "samples": {"type": "array", "maxItems": 120, "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["at", "state", "visibility", "unfocused", "color", "playbackDelta", "compatibility"],
+      "properties": {
+        "at": {"$ref": "#/$defs/time"},
+        "state": {"enum": ["off", "waiting", "watching", "generating", "complete", "error"]},
+        "visibility": {"enum": ["visible", "hidden"]}, "unfocused": {"type": "boolean"},
+        "color": {"enum": ["none", "yellow", "blue", "other"]},
+        "playbackDelta": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "compatibility": {"type": "object", "additionalProperties": false,
+          "required": ["state", "profileId", "revision", "revisionId", "reasons", "matched"],
+          "properties": {
+            "state": {"enum": ["healthy", "degraded", "incompatible"]}, "profileId": {"const": "chatgpt-dom"},
+            "revision": {"const": 1}, "revisionId": {"const": "packaged-1"},
+            "reasons": {"type": "array", "maxItems": 6, "items": {"enum": ["MAIN_MISSING", "REQUEST_AMBIGUOUS", "STRUCTURE_UNKNOWN", "FINAL_CONTROLS_DEFERRED", "MARKDOWN_COPY_MISSING", "ROLE_SIGNALS_MISSING"]}},
+            "matched": {"type": "array", "maxItems": 14, "items": {"enum": ["stop", "streaming", "finalCopy", "finalRegenerate", "turn", "wrapper", "user", "assistant", "message", "searchUnit", "markdown", "markdownCopy", "timeline", "request"]}}
+          }
+        }
+      }
+    }}
+  },
+  "$defs": {"time": {"type": "integer", "minimum": 0, "maximum": 4102444800000}}
+}
