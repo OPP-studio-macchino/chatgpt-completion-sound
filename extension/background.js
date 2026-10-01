@@ -89,7 +89,8 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     if (!allowed.includes(msg.state)) {reply({ok:false,error:'Invalid state'}); return false;}
     const id = sender.tab.id;
     const metadata = {version:/^\d+\.\d+\.\d+$/.test(msg.version || '') ? msg.version : '',visibility:msg.visibility === 'hidden' ? 'hidden' : 'visible'};
-    Promise.all([tabColors.set(id, msg.state, metadata),backgroundWatch.track(id, msg.state, sender.documentId)])
+    const watchGeneration = /^[a-f0-9-]{36}$/.test(msg.watchGeneration || '') ? msg.watchGeneration : '';
+    Promise.all([tabColors.set(id, msg.state, metadata),backgroundWatch.track(id, msg.state, sender.documentId, watchGeneration)])
       .then(() => reply({ok:true})).catch(() => reply({ok:false}));
     return true;
   }
@@ -118,9 +119,9 @@ chrome.tabs.onRemoved.addListener(id => {void tabColors.remove(id);void backgrou
 chrome.tabs.onUpdated.addListener((id, changes) => {
   if (changes.status === 'loading') {void tabColors.reset(id);void backgroundWatch.remove(id);}
 });
-// Transport completion only prompts a DOM check; it is not task completion.
+// Transport completion hints at DOM stability; it is never task completion alone.
 chrome.webRequest?.onCompleted?.addListener(details => {
-  if (candidateNetworkCompletion(details)) void backgroundWatch.probe(details.tabId).catch(() => {});
+  if (candidateNetworkCompletion(details)) void backgroundWatch.probe(details.tabId, {transportCompleted:true}).catch(() => {});
 },
   {urls:['https://chatgpt.com/backend-api/*']});
 chrome.runtime.onInstalled.addListener(() => {

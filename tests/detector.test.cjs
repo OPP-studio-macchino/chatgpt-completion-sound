@@ -25,6 +25,118 @@ test('second user turn starts generating before stop control appears',()=>{const
 test('same-route historical branch change with a ready answer does not start generating',()=>{const d=new Detector();d.step(base,0);d.step(snap({user:'u2',ready:true,message:'historical'}),100);assert.equal(d.active,false);assert.equal(d.step(snap({user:'u2',ready:true,message:'historical'}),5000),null);});
 
 const opaque=(n,change={})=>snap({user:'',message:'',turn:`/c/test\u001fconversation-turn-${n}`,ready:false,...change});
+test('generation entry increments lifecycle exactly once, including an inferred new user',()=>{
+ const d=new Detector();d.step(opaque(40,{user:'old-user',userExplicit:false,ready:true}),0);
+ const before=d.lifecycle;
+ d.step(opaque(41,{user:'new-user',userExplicit:false,busy:true}),100);
+ assert.equal(d.lifecycle,before+1);
+ d.step(opaque(42,{user:'pending-answer',userExplicit:false,busy:true}),200);
+ assert.equal(d.lifecycle,before+1);
+});
+test('active transport completion while busy survives teardown and starts four stable seconds afterward',()=>{
+ const d=new Detector(),answer=snap({ready:false,message:'writing'});
+ d.step({...answer,busy:true},0);
+ assert.equal(d.step({...answer,busy:true,transportCompleted:true},100),null);
+ assert.equal(d.step({...answer,busy:true},9000),null);
+ assert.equal(d.step(answer,9100),null);
+ assert.equal(d.step(answer,13099),null);
+ assert.equal(d.step(answer,13100),'writing');
+});
+test('transport correlation requires four stable seconds and completes exactly once',()=>{
+ const d=new Detector(), answer=snap({ready:false,message:'writing'});
+ d.step(snap({busy:true,ready:false,message:''}),0);
+ assert.equal(d.step({...answer,transportCompleted:true},100),null);
+ assert.equal(d.step({...answer,transportCompleted:true},4099),null);
+ assert.equal(d.step(answer,4100),'writing');
+ assert.equal(d.step({...answer,transportCompleted:true},9000),null);
+});
+test('control-free completion requires a usable transport hint',()=>{
+ for(const busyHint of [false,true]) {
+  const d=new Detector(), answer=snap({ready:false,message:'writing'});
+  d.step(snap({busy:true,ready:false,message:'',transportCompleted:busyHint}),0);
+  d.step(answer,100);assert.equal(d.step(answer,10000),null);
+ }
+});
+test('transport evidence is erased by lifecycle suppression, and busy restarts stability',()=>{
+ for(const change of [{busy:true},{user:'u2'},{route:'/c/other'},{blocked:true},{error:true},{compatibility:{state:'incompatible'}}]) {
+  const d=new Detector(), answer=snap({ready:false,message:'writing'});
+  d.step(snap({busy:true,ready:false,message:''}),0);
+  d.step({...answer,transportCompleted:true},100);
+  assert.equal(d.step({...answer,...change},200),null);
+  assert.equal(d.step({...answer,...change,busy:false,blocked:false,error:false,compatibility:undefined},10000),null);
+ }
+});
+test('manual stop before or after transport hint suppresses late hints',()=>{
+ for(const before of [true,false]) {
+  const d=new Detector(), answer=snap({ready:false,message:'writing',transportCompleted:true});
+  d.step(snap({busy:true,ready:false,message:''}),0);
+  if(before)d.cancel();d.step(answer,100);if(!before)d.cancel();
+  assert.equal(d.step(answer,200),null);assert.equal(d.step(answer,10000),null);
+ }
+});
+test('historical baseline and initial transport hints never complete',()=>{
+ const d=new Detector();d.step({...base,ready:false,transportCompleted:true},0);
+ assert.equal(d.step({...base,ready:false,transportCompleted:true},10000),null);
+ d.step({...base,busy:true},11000);
+ assert.equal(d.step({...base,ready:false,transportCompleted:true},12000),null);
+ assert.equal(d.step({...base,ready:false},20000),null);
+});
+test('normal controls retain their settle timing after a transport hint',()=>{
+ const d=new Detector();d.step(snap({busy:true,ready:false,message:''}),0);
+ d.step(snap({ready:false,message:'new',transportCompleted:true}),100);
+ assert.equal(d.step(snap({message:'new'}),200),null);
+ assert.equal(d.step(snap({message:'new'}),2200),'new');
+});
+test('normal readiness retires transport fallback even if controls disappear again',()=>{
+ const d=new Detector();d.step(snap({busy:true,ready:false,message:''}),0);
+ d.step(snap({ready:false,message:'new',transportCompleted:true}),100);
+ d.step(snap({message:'new'}),3900);
+ assert.equal(d.step(snap({ready:false,message:'new'}),4100),null);
+ assert.equal(d.step(snap({ready:false,message:'new'}),9000),null);
+});
+test('empty/nonempty user identity reclassification restarts stability within the same lifecycle',()=>{
+ for(const [user,nextUser] of [['','u1'],['u1','']]) {
+  const d=new Detector(),answer=snap({user,ready:false,message:'new'});
+  d.step({...answer,busy:true,message:''},0);d.step({...answer,transportCompleted:true},100);
+  d.step({...answer,user:nextUser},200);
+  assert.equal(d.step({...answer,user:nextUser},4199),null);
+  assert.equal(d.step({...answer,user:nextUser},4200),'new');
+ }
+});
+test('busy oscillation preserves transport evidence but restarts the full stability window',()=>{
+ const d=new Detector(),answer=snap({ready:false,message:'writing'});
+ d.step({...answer,busy:true},0);d.step({...answer,busy:true,transportCompleted:true},100);
+ d.step(answer,200);assert.equal(d.step(answer,4199),null);
+ d.step({...answer,busy:true},4200);assert.equal(d.step({...answer,busy:true},10000),null);
+ d.step(answer,10100);assert.equal(d.step(answer,14099),null);
+ assert.equal(d.step(answer,14100),'writing');
+});
+test('answer identity churn restarts stability without erasing same-lifecycle evidence',()=>{
+ const d=new Detector();d.step(snap({busy:true,ready:false,message:''}),0);
+ d.step(snap({ready:false,message:'first',transportCompleted:true}),100);
+ assert.equal(d.step(snap({ready:false,message:'second'}),4000),null);
+ assert.equal(d.step(snap({ready:false,message:'second'}),7999),null);
+ assert.equal(d.step(snap({ready:false,message:'second'}),8000),'second');
+});
+test('cancel, reset, disable, navigation and suppression erase busy transport evidence',()=>{
+ for(const invalidation of ['cancel','reset','enabled','route','error','blocked','incompatible']) {
+  const d=new Detector(),answer=snap({ready:false,message:'writing'});
+  d.step({...answer,busy:true},0);d.step({...answer,busy:true,transportCompleted:true},100);
+  if(invalidation==='cancel')d.cancel();
+  else if(invalidation==='reset')d.reset();
+  else d.step({...answer,...(invalidation==='route'?{route:'/c/other'}:invalidation==='incompatible'?{compatibility:{state:'incompatible'}}:invalidation==='enabled'?{enabled:false}:{[invalidation]:true})},200);
+  assert.equal(d.transportCompleted,false,invalidation);
+  assert.equal(d.step(answer,300),null);assert.equal(d.step(answer,10000),null,invalidation);
+ }
+});
+test('inferred-to-explicit roles retain the lifecycle and normal controls keep their settle timing',()=>{
+ const d=new Detector();d.step(snap({user:'inferred-input',userExplicit:false,turn:'inferred-answer',message:'',busy:true,ready:false}),0);
+ const generation=d.lifecycle;
+ d.step(snap({user:'inferred-input',userExplicit:false,turn:'inferred-answer',message:'',busy:true,ready:false,transportCompleted:true}),100);
+ const ready=snap({user:'explicit-input',userExplicit:true,turn:'explicit-answer',message:'explicit-message'});
+ assert.equal(d.step(ready,200),null);assert.equal(d.lifecycle,generation);
+ assert.equal(d.step(ready,2199),null);assert.equal(d.step(ready,2200),'explicit-answer');
+});
 test('initial role-less turn is only a baseline, even before its final action appears',()=>{const d=new Detector();assert.equal(d.step(opaque(40),0),null);assert.equal(d.active,false);assert.equal(d.step(opaque(40,{ready:true}),3000),null);assert.equal(d.active,false);});
 test('new role-less turn starts generating and completes once; second job also works',()=>{const d=new Detector();d.step(opaque(40),0);for(const [n,t] of [[41,100],[42,5000]]){assert.equal(d.step(opaque(n),t),null);assert.equal(d.active,true);assert.equal(d.step(opaque(n,{ready:true}),t+100),null);assert.equal(d.step(opaque(n,{ready:true}),t+2100),opaque(n).turn);assert.equal(d.active,false);assert.equal(d.step(opaque(n,{ready:true}),t+3000),null);}});
 test('ready role-less historical branch updates baseline without generating',()=>{const d=new Detector();d.step(opaque(40,{ready:true}),0);assert.equal(d.step(opaque(41,{ready:true}),100),null);assert.equal(d.active,false);assert.equal(d.step(opaque(41,{ready:false}),200),null);assert.equal(d.active,false);assert.equal(d.step(opaque(41,{ready:true}),5000),null);});

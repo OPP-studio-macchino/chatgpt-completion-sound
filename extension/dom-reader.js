@@ -2,9 +2,11 @@
   'use strict';
   const compatibility = root.ChappyCompatibility || (typeof require === 'function' ? require('./compatibility.js') : null);
   const signal = name => compatibility.selector(name);
+  // Trusted packaged rollout structure; deliberately outside remote CSS grammar.
+  const ROLLOUT_ACTION = '.turn-action-controls button';
   // Privacy-safe structural diagnostics: never copy arbitrary attributes or node text.
-  const STRUCTURAL_NAMES = new Set('role type contenteditable aria-busy aria-live aria-atomic aria-disabled data-testid data-state data-slot data-turn data-is-streaming data-stream-active data-message-author-role data-message-id data-turn-id'.split(' '));
-  const VALUE_NAMES = new Set('role type contenteditable aria-busy aria-live aria-atomic aria-disabled data-state data-slot'.split(' '));
+  const STRUCTURAL_NAMES = new Set('role type contenteditable aria-busy aria-live aria-atomic aria-disabled data-testid data-state data-slot data-turn data-is-streaming data-stream-active data-message-author-role data-message-id data-turn-id data-turn-key data-conversation-role data-chatgpt-agent-turn-start data-user-message-bubble data-markdown-text-style data-chatgpt-search-message-ids'.split(' '));
+  const VALUE_NAMES = new Set('role type contenteditable aria-busy aria-live aria-atomic aria-disabled'.split(' '));
   function structuralSummary(el, main, parent = el?.parentElement) {
     if (el?.nodeType !== 1) return null;
     let depthFromMain = null;
@@ -27,10 +29,9 @@
     return summary;
   }
   function normalizedTestId(testid) {
-    // Reject prose/URLs; redact identifiers before truncating, including IDs crossing the cap.
-    if (testid && /^[A-Za-z0-9_.:-]+$/.test(testid)) return testid
-      .replace(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/gi, '#')
-      .replace(/[a-f0-9]{8,}|[A-Za-z0-9]{16,}/gi, '#').replace(/\d+/g, '#').slice(0, 80);
+    // Syntax alone cannot distinguish a UI identifier from a private value.
+    // Export presence only; opaque completion identities are hashed separately.
+    if (testid && /^[A-Za-z0-9_.:-]+$/.test(testid)) return '#';
   }
   function structuralCensus(main) {
     const counts = {};
@@ -95,12 +96,25 @@
       if (diagnostic) diagnostic.dom.compatibility = health;
       return {...empty, compatibility:health};
     }
-    const busy = [...main.querySelectorAll(STOP)].some(visible) ||
-      [...main.querySelectorAll(signal('streaming'))].some(rendered);
+    const visibleStop = [...main.querySelectorAll(STOP)].some(visible);
+    const streamingRendered = [...main.querySelectorAll(signal('streaming'))].filter(rendered).length;
+    const busy = visibleStop || streamingRendered > 0;
+    // Confirmed composer structure; never inspect input values or prose.
+    // Hidden-tab layout evidence is insufficient for this fallback.
+    const composerIdle = doc.visibilityState === 'visible' &&
+      [...main.querySelectorAll(signal('composerSubmit'))].some(button => {
+        const form = button.closest('form');
+        return !!form && !!form.querySelector('textarea, [contenteditable="true"]') &&
+          !button.closest(signal('turn') + ', ' + signal('message') + ', ' + signal('searchUnit')) &&
+          visible(button) && !button.matches(':disabled') && !button.hasAttribute('disabled') &&
+          !button.closest('[aria-disabled="true"]');
+      });
     const turns = [...main.querySelectorAll(signal('turn'))];
     let turn = turns.at(-1);
     const users = [...main.querySelectorAll(signal('user'))];
-    let user = users.at(-1)?.getAttribute('data-message-id') || '';
+    const latestUser = users.at(-1);
+    const userGroupKey = latestUser?.closest('[data-turn-key]')?.getAttribute('data-turn-key');
+    let user = latestUser?.getAttribute('data-message-id') || (userGroupKey ? `${route}\u001fgroup-user\u001f${userGroupKey}` : '');
     let assistant = null;
     if (turn) {
       if (turn.getAttribute('data-turn') !== 'user') {
@@ -120,15 +134,27 @@
     let turnId = conversationTurnTestId
       ? `${route}\u001f${conversationTurnTestId}`
       : (assistantTurn || assistant) && turn?.getAttribute('data-turn-id') ? `${route}\u001f${turn.getAttribute('data-turn-id')}` : '';
+    const group = turn?.matches('[data-turn-key]') ? turn : null;
+    const groupKey = group?.getAttribute('data-turn-key');
+    // One rollout group holds both roles. Keep user identity stable as the
+    // assistant emerges, but give its completion identity a distinct role.
+    if (!turnId && !message && groupKey) turnId = `${route}\u001fgroup-${assistant ? 'assistant' : 'user'}\u001f${groupKey}`;
     const opaqueTurn = !!conversationTurnTestId && !turn.hasAttribute('data-turn') &&
       !turn.hasAttribute('data-message-author-role') && !turn.querySelector(signal('message'));
     const answerNode = assistant || (assistantTurn || opaqueTurn ? turn : null);
-    const controlReady = !!(message || turnId) && !!turn && rendered(answerNode) && [...turn.querySelectorAll(COPY)].some(rendered);
+    const ordered = group ? [...group.querySelectorAll('*')] : [];
+    const rolloutReady = !!assistant && !!groupKey && rendered(assistant) &&
+      [...group.querySelectorAll(ROLLOUT_ACTION)].some(button =>
+        button.closest('[data-turn-key]') === group && rendered(button) &&
+        ordered.indexOf(button) > ordered.indexOf(assistant));
+    const controlReady = rolloutReady || (!!(message || turnId) && !!turn && rendered(answerNode) &&
+      [...turn.querySelectorAll(COPY)].some(button => rendered(button) &&
+        (!group || (button.closest('[data-turn-key]') === group && ordered.indexOf(button) > ordered.indexOf(assistant)))));
     // ChatGPT can defer the final action toolbar while a tab is hidden. In that
     // case, require a finished assistant message id and no busy signal; the
     // detector applies a longer settle period before accepting this fallback.
     const hiddenReady = !busy && doc.visibilityState === 'hidden' &&
-      !!assistant?.getAttribute('data-message-id') && rendered(assistant);
+      (!!assistant?.getAttribute('data-message-id') || (!!groupKey && !!assistant && !!turnId)) && rendered(assistant);
     let ready = controlReady || hiddenReady;
     let provisional = hiddenReady && !controlReady;
     let searchUnitAssistant = false, searchUnitUser = false, timelineScoped = false, ambiguous = false;
@@ -202,7 +228,7 @@
         copyMatchedCount:copies.length, copyRenderedCount:copies.filter(rendered).length,
         busy, ready, provisional, blocked, error,
         userIdPresent:!!user, messageIdPresent:!!message, turnIdPresent:!!turnId, opaqueTurn,
-        selectedIsUser:turn?.getAttribute('data-turn') === 'user' || turn?.getAttribute('data-message-author-role') === 'user' || !!turn?.querySelector(signal('user')) || searchUnitUser,
+        selectedIsUser:group ? !assistant && !!group.querySelector(signal('user')) : turn?.getAttribute('data-turn') === 'user' || turn?.getAttribute('data-message-author-role') === 'user' || !!turn?.querySelector(signal('user')) || searchUnitUser,
         selectedIsAssistant:assistantTurn || !!assistant || searchUnitAssistant
       });
       diagnostic.identity?.('turn', turnId);
@@ -210,7 +236,8 @@
       diagnostic.identity?.('user', user);
       diagnostic.identity?.('message', message);
     }
-    return {...empty, user, message, turn:turnId, ready, provisional, busy, blocked, error, compatibility:health,
+    return {...empty, user, userExplicit:users.length > 0, message, turn:turnId, ready, provisional, busy, visibleStop, streamingRendered,
+      composerIdle:composerIdle && rendered(answerNode || (searchUnitAssistant ? turn : null)), blocked, error, compatibility:health,
       ...(searchUnitAssistant && ready ? {settleMsOverride:timelineScoped ? 2000 : 500} : {})};
   }
   root.ChappyDOM = {read, get STOP() {return signal('stop');}, rendered, structuralSummary, normalizedTestId};

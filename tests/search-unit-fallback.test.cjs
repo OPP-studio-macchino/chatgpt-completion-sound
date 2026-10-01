@@ -1,7 +1,7 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
-const {createHash} = require('node:crypto');
+const {createHash, randomUUID} = require('node:crypto');
 const {parseHTML} = require(require.resolve('linkedom', {paths:[process.env.CHAPPY_DOM_DEPENDENCIES || __dirname]}));
 const flush = () => new Promise(setImmediate);
 const unit = (key, body = '') => `<section data-chatgpt-search-unit-key="${key}">${body}</section>`;
@@ -23,7 +23,7 @@ async function fixture(t, html = history) {
       sent.push(JSON.parse(JSON.stringify(message)));
       return message.target === 'settings' ? {enabled:true} : {ok:true};
     }, onMessage:{addListener:fn => listeners.add(fn), removeListener:fn => listeners.delete(fn)}}},
-    crypto:{subtle:{async digest(algorithm, bytes) {
+    crypto:{randomUUID,subtle:{async digest(algorithm, bytes) {
       assert.equal(algorithm, 'SHA-256');
       return Uint8Array.from(createHash('sha256').update(bytes).digest()).buffer;
     }}}, TextEncoder, Date:{now:() => now}, queueMicrotask,
@@ -178,6 +178,78 @@ test('a ready marker disappearing before 500ms resets search-unit completion sta
   await f.scan(null, 3600);
   assert.equal(f.completions().length, 1);
 });
+
+for (const hidden of [false, true]) for (const streaming of [false, true]) {
+  test(`pending search unit becoming an answer completes once (hidden=${hidden}, streaming=${streaming})`, async t => {
+    const f = await fixture(t);
+    if (hidden) Object.defineProperty(f.document, 'visibilityState', {value:'hidden'});
+    const prompt = history + unit('private-pending-user');
+    await f.scan(prompt, 100);
+    await f.scan(prompt + unit('private-pending-answer'), 200);
+    const identity = f.read().turn;
+    assert.equal(f.read().user, identity);
+    assert.equal(f.state(), 'generating');
+    const finished = prompt + unit('private-pending-answer', copy);
+    await f.scan(finished + (streaming ? '<div data-is-streaming="true"></div>' : ''), 300);
+    assert.equal(f.read().turn, identity);
+    assert.notEqual(f.read().user, identity);
+    assert.equal(f.completions().length, 0);
+    await f.scan(finished, 400);
+    await f.scan(null, streaming ? 899 : 799);
+    assert.equal(f.completions().length, 0);
+    await f.scan(null, 900);
+    assert.equal(f.state(), 'complete');
+    assert.equal(f.completions().length, 1);
+    await f.scan(null, 6000);
+    assert.equal(f.completions().length, 1);
+    assert.equal(JSON.stringify({sent:f.sent, diagnostic:f.diagnostics()}).includes('private-'), false);
+  });
+}
+
+test('stopping a pending search unit suppresses its later answer markers', async t => {
+  const f = await fixture(t);
+  const prompt = history + unit('private-stopped-user');
+  await f.scan(prompt, 100);
+  await f.scan(prompt + unit('private-stopped-answer') + '<button data-testid="stop-button"></button>', 200);
+  f.document.querySelector('[data-testid="stop-button"]').dispatchEvent(new f.context.window.Event('click', {bubbles:true}));
+  await flush();
+  assert.equal(f.sent.filter(message => message.type === 'CANCEL').length, 1);
+  await f.scan(prompt + unit('private-stopped-answer', copy) + '<div data-is-streaming="true"></div>', 300);
+  await f.scan(prompt + unit('private-stopped-answer', copy), 400);
+  await f.scan(null, 6000);
+  assert.equal(f.completions().length, 0);
+  assert.notEqual(f.state(), 'generating');
+  await f.scan(prompt + unit('private-stopped-answer', copy) + unit('private-next-user'), 6100);
+  await f.scan(prompt + unit('private-stopped-answer', copy) + unit('private-next-user') + unit('private-next-answer'), 6200);
+  await f.scan(prompt + unit('private-stopped-answer', copy) + unit('private-next-user') + unit('private-next-answer', copy), 6300);
+  await f.scan(null, 6800);
+  assert.equal(f.completions().length, 1);
+});
+
+test('answer markers on an initially loaded pending unit do not invent generation', async t => {
+  const prompt = unit('private-initial-user');
+  const f = await fixture(t, prompt + unit('private-initial-answer'));
+  await f.scan(prompt + unit('private-initial-answer', copy), 100);
+  await f.scan(null, 6000);
+  assert.equal(f.state(), 'watching');
+  assert.equal(f.completions().length, 0);
+});
+
+for (const transition of ['route', 'branch', 'ambiguous', 'error', 'blocked']) {
+  test(`pending unit reclassification preserves ${transition} suppression`, async t => {
+    const f = await fixture(t);
+    const prompt = history + unit('private-new-user');
+    await f.scan(prompt + unit('private-new-answer'), 100);
+    if (transition === 'route') f.context.location.pathname = '/c/other-fixture';
+    const finished = transition === 'branch' ? unit('private-branch-user') + unit('private-branch-answer', copy) : prompt + unit('private-new-answer', copy);
+    const extra = transition === 'ambiguous' ? '<main>' + finished + '</main>' : '';
+    await f.scan(finished + (transition === 'error' ? '<div role="alert">Network error</div>' : transition === 'blocked' ? '<div role="dialog"></div>' : ''), 200);
+    if (extra) f.document.querySelector('main').insertAdjacentHTML('afterend', extra);
+    await f.scan(null, 300);
+    await f.scan(null, 6000);
+    assert.equal(f.completions().length, 0);
+  });
+}
 
 test('legacy ready snapshots still require 2000ms of stability', async t => {
   const f = await fixture(t, '<section data-turn="assistant" data-turn-id="legacy-turn"><button data-testid="copy-turn-action-button"></button></section>');

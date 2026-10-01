@@ -12,6 +12,7 @@
       this.now = clock.now || Date.now;
       this.timers = new Map();
       this.running = new Set();
+      this.pendingTransport = new Map();
       this.queue = Promise.resolve();
     }
     enqueue(action) {
@@ -36,33 +37,40 @@
         }
       } else await this.api.alarms.clear(BackgroundWatch.ALARM);
     }
-    track(id, state, documentId) {
+    track(id, state, documentId, watchGeneration = '') {
       return this.enqueue(async () => {
         const key = this.key(id);
         const previous = (await this.api.storage.session.get(key))[key];
         const {enabled} = await this.api.storage.local.get({enabled:false});
         if (state === 'generating' && enabled) {
-          const sameDocument = previous && previous.documentId === (documentId || '');
-          if (!sameDocument) await this.api.storage.session.remove('probe-'+id);
-          await this.api.storage.session.set({[key]:{documentId:documentId || '', startedAt:sameDocument ? previous.startedAt : this.now()}});
+          const sameDocument = previous && previous.documentId === (documentId || '') && (previous.watchGeneration || '') === watchGeneration;
+          if (!sameDocument) {this.pendingTransport.delete(id);await this.api.storage.session.remove('probe-'+id);}
+          await this.api.storage.session.set({[key]:{documentId:documentId || '', watchGeneration, startedAt:sameDocument ? previous.startedAt : this.now()}});
           this.schedule(id);
         } else if (!previous || !documentId || previous.documentId === documentId) {
+          this.pendingTransport.delete(id);
           this.cancel(this.timers.get(id)); this.timers.delete(id);
           await this.api.storage.session.remove(key);
         }
         await this.alarm();
       });
     }
-    async request(id, record) {
+    async request(id, record, {transportCompleted = false} = {}) {
       let timeout;
       try {
         return await Promise.race([
-          this.api.tabs.sendMessage(id, {type:'SCAN_NOW'}, record.documentId ? {documentId:record.documentId} : {frameId:0}),
+          this.api.tabs.sendMessage(id, {type:'SCAN_NOW', ...(transportCompleted === true ? {transportCompleted:true, ...(record.watchGeneration ? {watchGeneration:record.watchGeneration} : {})} : {})}, record.documentId ? {documentId:record.documentId} : {frameId:0}),
           new Promise((_, reject) => {timeout=this.later(() => reject(new Error('no-reply')), 5000);})
         ]);
       } finally {this.cancel(timeout);}
     }
-    async probe(id) {
+    async probe(id, options = {}) {
+      if (options.transportCompleted === true) {
+        await this.enqueue(async () => {
+          const record = (await this.api.storage.session.get(this.key(id)))[this.key(id)];
+          if (record) this.pendingTransport.set(id, record);
+        });
+      }
       if (this.running.has(id)) return;
       this.running.add(id);
       let retry = 2000;
@@ -76,29 +84,46 @@
         const tab = await this.api.tabs.get(id);
         let result;
         if (tab.discarded || tab.frozen) {
+          this.pendingTransport.delete(id);
           result = {issue:tab.discarded ? 'discarded' : 'frozen'}; retry = 30000;
         } else {
           try {
-            const reply = await this.request(id, record);
+            // Serialize the final record check and dispatch with lifecycle changes,
+            // but never hold the queue while waiting for the content reply/STATUS.
+            const dispatch = await this.enqueue(async () => {
+              const current = (await this.api.storage.session.get(key))[key];
+              if (current?.documentId !== record.documentId || current.startedAt !== record.startedAt || current.watchGeneration !== record.watchGeneration) return null;
+              const pending = this.pendingTransport.get(id);
+              this.pendingTransport.delete(id);
+              return {reply:this.request(id, record, {transportCompleted:
+                pending?.documentId === record.documentId && pending.startedAt === record.startedAt && pending.watchGeneration === record.watchGeneration})};
+            });
+            if (!dispatch) return;
+            const reply = await dispatch.reply;
             if (!reply?.ok) throw new Error('no-reply');
             result = {issue:'',visibility:reply.visibility === 'hidden' ? 'hidden' : 'visible',busy:reply.busy === true,ready:reply.ready === true};
           } catch {result={issue:'no-reply'}; retry=30000;}
         }
         // Diagnostic metadata only; never store the conversation text or URL.
         const current = (await this.api.storage.session.get(key))[key];
-        if (current?.documentId === record.documentId && current.startedAt === record.startedAt) {
+        if (current?.documentId === record.documentId && current.startedAt === record.startedAt && current.watchGeneration === record.watchGeneration) {
           await this.api.storage.session.set({['probe-'+id]:{...result,at:this.now()}});
         }
       } catch {
         await this.remove(id);
       } finally {
-        this.running.delete(id);
         await this.queue;
+        this.running.delete(id);
+        if (this.pendingTransport.has(id)) {
+          void this.probe(id).catch(() => {});
+          return;
+        }
         if ((await this.api.storage.session.get(this.key(id)))[this.key(id)]) this.schedule(id, retry);
       }
     }
     restore() {
       return this.enqueue(async () => {
+        this.pendingTransport.clear();
         const {enabled} = await this.api.storage.local.get({enabled:false});
         const entries = await this.api.storage.session.get(null);
         for (const key of Object.keys(entries)) if (/^watch-\d+$/.test(key)) {
@@ -113,6 +138,7 @@
     }
     remove(id) {
       return this.enqueue(async () => {
+        this.pendingTransport.delete(id);
         this.cancel(this.timers.get(id));this.timers.delete(id);
         await this.api.storage.session.remove(this.key(id));
         await this.api.storage.session.remove('probe-'+id);

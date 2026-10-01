@@ -43,7 +43,7 @@ async function fixture({legacy = false, digest = webcrypto.subtle.digest.bind(we
       return msg.target === 'settings' ? {enabled:true} : {ok:true};
     },
     onMessage:{addListener:fn => messages.add(fn), removeListener:fn => messages.delete(fn)}
-  }}, crypto:{subtle:{digest(...args) {const pending = digest(...args); pendingHashes.push(pending); return pending;}}}, TextEncoder, Date:{now:() => now}, queueMicrotask,
+  }}, crypto:{randomUUID:()=>webcrypto.randomUUID(),subtle:{digest(...args) {const pending = digest(...args); pendingHashes.push(pending); return pending;}}}, TextEncoder, Date:{now:() => now}, queueMicrotask,
   setInterval(fn) {timers.add(fn); return fn;}, clearInterval:fn => timers.delete(fn)});
   const run = file => vm.runInContext(fs.readFileSync(path.join(__dirname, '../extension', file), 'utf8'), context);
   run('compatibility.js'); run('detector.js'); run('dom-reader.js');
@@ -61,6 +61,150 @@ async function fixture({legacy = false, digest = webcrypto.subtle.digest.bind(we
   };
 }
 
+test('exact Stop label reports generating and nested manual-stop click suppresses completion', async t => {
+  const f = await fixture(); t.after(() => f.dispose());
+  await f.scan('<form data-chatgpt-composer><button type="button" aria-label="Stop"><span></span></button></form>', 100);
+  const snapshot = f.context.ChappyDOM.read(f.document, '/c/fixture');
+  assert.equal(snapshot.busy, true);
+  assert.equal(snapshot.visibleStop, true);
+  assert.equal(f.sent.findLast(m => m.type === 'STATUS').state, 'generating');
+  f.document.querySelector('button span').dispatchEvent(new f.window.Event('click', {bubbles:true}));
+  assert.equal(f.cancels, 1);
+  assert.equal(f.sent.filter(m => m.type === 'CANCEL').length, 1);
+  await f.scan(turn('stopped', true), 200);
+  await f.scan(null, 10000); await f.settleHashes();
+  assert.equal(f.sent.filter(m => m.type === 'COMPLETE').length, 0);
+});
+
+const rolloutGroup=(body='',key='PRIVATE_ROLLOUT_KEY')=>`<section data-turn-key="${key}" data-chatgpt-search-message-ids="PRIVATE_SEARCH_MESSAGE_IDS"><div data-user-message-bubble></div>${body}</section>`;
+const rolloutAnswer='<div data-conversation-role="assistant"><div data-markdown-text-style="assistant-message">PRIVATE_ANSWER_PROSE</div></div>';
+const rolloutAction='<div class="turn-action-controls"><button></button></div>';
+test('rollout historical final group does not complete on initial load',async()=>{
+ const f=await fixture();
+ await f.scan(rolloutGroup(rolloutAnswer+rolloutAction),0);
+ await f.scan(null,20000);await f.settleHashes();
+ assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,0);
+ f.dispose();
+});
+test('all rollout structural attribute mutations schedule content scans and redact values',async()=>{
+ const f=await fixture();
+ await f.scan(rolloutGroup(rolloutAnswer),0);
+ for(const name of ['data-turn-key','data-conversation-role','data-chatgpt-agent-turn-start','data-user-message-bubble','data-markdown-text-style','data-chatgpt-search-message-ids']) {
+  const before=diagnostics(f).trace.length;
+  f.document.querySelector('[data-turn-key]').setAttribute(name,'PRIVATE_MUTATION');
+  await flush();await f.settleHashes();
+  assert.ok(diagnostics(f).trace.length>before,name);
+ }
+ assert.doesNotMatch(JSON.stringify([diagnostics(f),f.sent]),/PRIVATE_/);
+ f.dispose();
+});
+test('rollout content lifecycle completes once with no legacy roles/testids and no transport',async()=>{
+ const f=await fixture();
+ await f.scan(rolloutGroup(),0);
+ await f.scan(rolloutGroup()+'<button aria-label="Stop generating"></button>',100);
+ const generation=f.sent.findLast(m=>m.type==='STATUS').watchGeneration;
+ await f.scan(rolloutGroup(rolloutAnswer)+'<button aria-label="Stop generating"></button>',200);
+ assert.equal(f.sent.findLast(m=>m.type==='STATUS').watchGeneration,generation);
+ await f.scan(rolloutGroup(rolloutAnswer+rolloutAction),300);
+ await f.scan(null,2299);assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,0);
+ await f.scan(null,2300);await f.settleHashes();
+ assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,1);
+ assert.equal(f.sent.findLast(m=>m.type==='STATUS').state,'complete');
+ await f.scan(null,10000);await f.settleHashes();
+ assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,1);
+ assert.doesNotMatch(JSON.stringify([diagnostics(f),f.sent]),/PRIVATE_/);
+ f.dispose();
+});
+for(const guard of ['manual stop','error','blocked','incompatible','early action','user only'])test(`rollout content suppresses ${guard}`,async()=>{
+ const f=await fixture();
+ await f.scan(rolloutGroup()+'<button aria-label="Stop generating"></button>',0);
+ if(guard==='manual stop')f.document.querySelector('button').dispatchEvent(new f.window.Event('click',{bubbles:true}));
+ let html=rolloutGroup(rolloutAnswer+rolloutAction);
+ if(guard==='error')html+='<div role="alert">Network error</div>';
+ if(guard==='blocked')html+='<div role="dialog"></div>';
+ if(guard==='incompatible')html='<main></main>';
+ if(guard==='early action')html=rolloutGroup(rolloutAction+rolloutAnswer);
+ if(guard==='user only')html=rolloutGroup(rolloutAction);
+ await f.scan(html,100);await f.scan(null,20000);await f.settleHashes();
+ assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,0);
+ f.dispose();
+});
+
+test('visible control-free assistant completes only with a trusted transport hint',async()=>{
+ for(const trusted of [false,true]) {
+  const f=await fixture();
+  await f.scan('<section data-testid="conversation-turn-1"><div data-message-author-role="assistant" data-message-id="synthetic-answer"><p>Synthetic writing block</p></div></section><button data-testid="stop-button">Stop</button>',0);
+  await f.scan('<section data-testid="conversation-turn-1"><div data-message-author-role="assistant" data-message-id="synthetic-answer"><p>Synthetic writing block</p></div></section>',100);
+  const watchGeneration=f.sent.findLast(m=>m.type==='STATUS').watchGeneration;
+  for(const listener of f.messages)await new Promise(resolve=>listener({type:'SCAN_NOW',transportCompleted:true,watchGeneration},{id:trusted?'fixture':'foreign'},resolve));
+  assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,0);
+  await f.scan(null,4099);assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,0);
+  await f.scan(null,4100);await f.settleHashes();
+  assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,trusted?1:0);
+  await f.scan(null,9000);assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,trusted?1:0);
+  f.dispose();
+ }
+});
+test('same active search-unit generation keeps G1 through reclassification and a busy transport hint',async()=>{
+ for(const hintTiming of ['before-reclassification','while-busy','after-teardown','typed-reclassification']) {
+ const f=await fixture();
+ const unit=(key,body='')=>`<section data-chatgpt-search-unit-key="${key}">${body}</section>`;
+ const history=unit('history-user')+unit('history-answer','<div data-markdown-copy>Fixture</div>');
+ const prompt=history+unit('new-user');
+ const pending=prompt+unit('new-answer');
+ const writing=hintTiming==='typed-reclassification'
+  ? '<section data-testid="conversation-turn-10"><div data-message-author-role="user" data-message-id="fixture-user">Fixture prompt</div></section><section data-testid="conversation-turn-11"><div data-message-author-role="assistant" data-message-id="fixture-answer">Fixture writing block</div></section>'
+  : prompt+unit('new-answer','<div data-markdown-han-text>Fixture writing block</div>');
+ const busy='<button data-testid="stop-button">Stop</button>';
+ await f.scan(history,0);await f.scan(prompt+busy,100);
+ const g1=f.sent.findLast(m=>m.type==='STATUS').watchGeneration;
+ const hint=async()=>{for(const listener of f.messages)await new Promise(resolve=>listener({type:'SCAN_NOW',transportCompleted:true,watchGeneration:g1},{id:'fixture'},resolve));};
+ if(hintTiming==='before-reclassification')await hint();
+ await f.scan(pending+busy,200);await f.scan(writing+busy,300);
+ assert.equal(f.sent.findLast(m=>m.type==='STATUS').watchGeneration,g1);
+ if(hintTiming==='while-busy'||hintTiming==='typed-reclassification')await hint();
+ await f.scan(writing,400);if(hintTiming==='after-teardown')await hint();
+ await hint(); // Duplicate hints must neither restart stability nor double notify.
+ await f.scan(null,4399);assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,0);
+ await f.scan(null,4400);await f.settleHashes();assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,1);
+ await f.scan(null,9000);assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,1);
+ assert.equal(JSON.stringify(diagnostics(f)).includes(g1),false);f.dispose();
+ }
+});
+test('stale transport lifecycle tokens cannot cross new prompt, route, cancel or reinjection',async()=>{
+ const answer=(user,id,busy=false)=>`<section data-testid="conversation-turn-${user}"><div data-message-author-role="user" data-message-id="user-${user}"></div></section><section data-testid="conversation-turn-${id}"><div data-message-author-role="assistant" data-message-id="answer-${id}"><p>Synthetic</p></div></section>${busy?'<button data-testid="stop-button">Stop</button>':''}`;
+ for(const lifecycle of ['new-prompt','route','cancel','reinjection','disable','navigation']) {
+  const f=await fixture();await f.scan(answer(1,2,true),0);await f.scan(answer(1,2),100);
+  const stale=f.sent.findLast(m=>m.type==='STATUS').watchGeneration;
+  if(lifecycle==='cancel') {
+   await f.scan(answer(1,2,true),200);
+   f.document.querySelector('[data-testid="stop-button"]').click();
+  }
+  if(lifecycle==='route')f.context.location.pathname='/c/other';
+  if(lifecycle==='reinjection')await f.inject();
+  if(lifecycle==='navigation')for(const fn of f.windowListeners.get('popstate'))fn();
+  if(lifecycle==='disable')for(const enabled of [false,true])for(const listener of f.messages)listener({type:'SET_ENABLED',enabled},{id:'fixture'},()=>{});
+  await f.scan(answer(3,4,true),300);await f.scan(answer(3,4),400);
+  const current=f.sent.findLast(m=>m.type==='STATUS').watchGeneration;
+  assert.notEqual(current,stale,lifecycle);
+  for(const listener of f.messages)await new Promise(resolve=>listener({type:'SCAN_NOW',transportCompleted:true,watchGeneration:stale},{id:'fixture'},resolve));
+  await f.scan(null,5000);assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,0,lifecycle);
+  const exported=JSON.stringify(diagnostics(f));assert.equal(exported.includes(stale),false);assert.equal(exported.includes(current),false);
+  for(const listener of f.messages)await new Promise(resolve=>listener({type:'SCAN_NOW',transportCompleted:true,watchGeneration:current},{id:'fixture'},resolve));
+  await f.scan(null,8999);assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,0,lifecycle);
+  await f.scan(null,9000);await f.settleHashes();assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,1,lifecycle);
+  f.dispose();
+ }
+});
+test('manual stop erases already-recorded busy transport evidence',async()=>{
+ const f=await fixture(),answer='<section data-testid="conversation-turn-1"><div data-message-author-role="assistant" data-message-id="fixture-answer">Fixture</div></section>';
+ await f.scan(answer+'<button data-testid="stop-button">Stop</button>',0);
+ const g1=f.sent.findLast(m=>m.type==='STATUS').watchGeneration;
+ for(const listener of f.messages)await new Promise(resolve=>listener({type:'SCAN_NOW',transportCompleted:true,watchGeneration:g1},{id:'fixture'},resolve));
+ f.document.querySelector('[data-testid="stop-button"]').click();
+ await f.scan(answer,100);await f.scan(null,10000);
+ assert.equal(f.sent.filter(m=>m.type==='COMPLETE').length,0);f.dispose();
+});
 test('content version handshake is authenticated, read-only and unavailable after disposal', async t => {
   const f = await fixture();
   t.after(() => f.dispose());
@@ -105,6 +249,8 @@ test('characterData-only records schedule a private mutation scan without heartb
   assert.equal(observer.options.characterDataOldValue, undefined);
   assert.equal(observer.options.attributeOldValue, undefined);
   assert.deepEqual(Array.from(observer.options.attributeFilter), [
+    'data-turn-key','data-conversation-role','data-chatgpt-agent-turn-start','data-user-message-bubble','data-markdown-text-style','data-chatgpt-search-message-ids',
+    'disabled','aria-disabled','type','contenteditable',
     'data-testid','data-is-streaming','data-stream-active','data-message-id','data-turn-id','data-turn',
     'aria-label','aria-hidden','hidden','class','style','data-markdown-copy','data-markdown-han-text',
     'data-chatgpt-search-unit-key','data-content-search-unit-key'
@@ -520,13 +666,13 @@ test('unit descendant counts and normalized patterns exclude private content fro
     const unit = payload.unitSummaries[attribute][0];
     // Matching attributes on the unit itself must not count as descendants.
     assert.deepEqual(unit.descendantCounts, expectedCounts);
-    assert.deepEqual(unit.testIdPatterns, ['control-#', 'result-#-#-#-#']);
-    assert.deepEqual(unit.buttonStateCounts, [{value:'closed', count:2}, {value:'open', count:1}]);
+    assert.deepEqual(unit.testIdPatterns, ['#']);
+    assert.deepEqual(unit.buttonStateCounts, [{count:4}]);
     assert.deepEqual(unit.buttonTypeCounts, [{value:'button', count:2}, {value:'submit', count:1}]);
   }
   const structure = payload.structureHistory.at(-1);
-  assert.deepEqual(structure.testIdPatterns, ['control-#', 'result-#-#-#-#', 'unit-#']);
-  assert.deepEqual(structure.buttonStateCounts, [{value:'closed', count:4}, {value:'open', count:2}]);
+  assert.deepEqual(structure.testIdPatterns, ['#']);
+  assert.deepEqual(structure.buttonStateCounts, [{count:8}]);
   assert.deepEqual(structure.buttonTypeCounts, [{value:'button', count:4}, {value:'submit', count:2}]);
   assert.deepEqual(structure.formSummary.descendantCounts,
     {button:8, '[contenteditable="true"]':4, '[data-state]':14, '[data-testid]':10});
@@ -653,12 +799,12 @@ test('unit lifecycle captures wrapper controls and only privacy-safe fields', as
   for (const prefix of ['', 'parent', 'grandparent']) {
     const field = name => prefix ? prefix + name[0].toUpperCase() + name.slice(1) : name;
     const count = prefix === '' ? 0 : prefix === 'parent' ? 1 : 2;
-    assert.deepEqual(u[field('buttonStateCounts')], count ? [{value:'closed', count}] : []);
+    assert.deepEqual(u[field('buttonStateCounts')], count ? [{count}] : []);
     assert.deepEqual(u[field('buttonTypeCounts')], count ? [{value:'button', count}] : []);
-    assert.deepEqual(u[field('testIdPatterns')], Array.from({length:8}, (_, i) => `control-${String.fromCharCode(97+i)}-#`));
+    assert.deepEqual(u[field('testIdPatterns')], ['#']);
   }
   const before = diagnostics(f).unitLifecycleHistory.length;
-  section.parentElement.querySelector('button').setAttribute('data-state', 'open');
+  section.parentElement.querySelector('button').setAttribute('type', 'submit');
   await f.scan(null, 3);
   await f.settleHashes();
   assert.equal(diagnostics(f).unitLifecycleHistory.length, before + 1);
@@ -726,7 +872,7 @@ test('structural mutation and focus diagnostics exclude prose and forbidden attr
   assert.equal(summary.parentTag, 'main');
   assert.equal(summary.depthFromMain, 1);
   assert.equal(summary.role, 'group');
-  assert.equal(summary['data-state'], 'open');
+  assert.equal(summary['data-state'], undefined);
   assert.equal(summary.hasButtonDescendant, true);
   assert.equal(summary.hasTextareaDescendant, true);
   assert.equal(summary.hasContentEditableDescendant, true);
@@ -743,14 +889,14 @@ test('structural mutation and focus diagnostics exclude prose and forbidden attr
   f.dispose();
 });
 
-test('testid patterns redact numeric UUID hex and long identifiers before capping', async () => {
+test('testid diagnostics export presence only, including numeric UUID hex and short private values', async () => {
   const f = await fixture();
   const el = f.document.createElement('div');
   const summarize = () => f.context.ChappyDOM.structuralSummary(el, null);
   el.setAttribute('data-testid', 'turn-123-12345678-abcd-4321-abcd-123456789abc-deadbeef-AzByCxDwEvFuGtHs');
-  assert.equal(summarize()['data-testidPattern'], 'turn-#-#-#-#');
+  assert.equal(summarize()['data-testidPattern'], '#');
   el.setAttribute('data-testid', 'slot-'.repeat(20) + 'AzByCxDwEvFuGtHs');
-  assert.equal(summarize()['data-testidPattern'].length, 80);
+  assert.equal(summarize()['data-testidPattern'], '#');
   for (const value of ['private prose', 'https://private.invalid/path']) {
     el.setAttribute('data-testid', value);
     el.setAttribute('data-state', value);
@@ -760,6 +906,18 @@ test('testid patterns redact numeric UUID hex and long identifiers before cappin
   el.setAttribute('data-slot', 'x'.repeat(41));
   assert.equal(summarize()['data-slot'], undefined);
   f.dispose();
+});
+
+test('diagnostics exclude syntactically valid private data values route IDs and watch tokens', async t => {
+  const f = await fixture(); t.after(() => f.dispose());
+  f.context.location.pathname = '/c/PRIVATE_ROUTE_123';
+  await f.scan('<section data-testid="conversation-turn-PRIVATE_TURN"><div data-message-author-role="assistant" data-message-id="PRIVATE_MESSAGE"><button type="button" data-state="PRIVATE_STATE" data-slot="PRIVATE_SLOT" data-testid="PRIVATE_TESTID">PRIVATE_PROSE</button></div></section><button data-testid="stop-button">Stop</button>', 100);
+  await f.settleHashes();
+  const token = f.sent.findLast(m => m.type === 'STATUS').watchGeneration;
+  const exported = JSON.stringify(diagnostics(f));
+  assert.doesNotMatch(exported, /PRIVATE_|PRIVATE_PROSE|backend-api|transportCompleted|watchGeneration/);
+  assert.equal(exported.includes(token), false);
+  assert.ok(exported.includes('keyHash') || exported.includes('identities'));
 });
 
 test('census counts scoped structure and data attribute names only with a top twelve cap', async () => {

@@ -7,6 +7,56 @@ function setup() {
   f.api.tabs.sendMessage=async(...args)=>{messages.push(args);return {ok:true,busy:true,ready:false,visibility:'hidden'};};
   return {...f,clock,messages,watch:new Watch(f.api,clock)};
 }
+test('transport hint is one-shot and only targets a generating document',async()=>{
+ const f=setup();await f.watch.probe(1,{transportCompleted:true});assert.equal(f.messages.length,0);
+ await f.watch.track(1,'generating','doc1');await f.watch.probe(1,{transportCompleted:true});
+ assert.deepEqual(f.messages[0],[1,{type:'SCAN_NOW',transportCompleted:true},{documentId:'doc1'}]);
+ await f.watch.probe(1);assert.deepEqual(f.messages[1][1],{type:'SCAN_NOW'});
+ await f.watch.track(1,'watching','doc1');await f.watch.probe(1,{transportCompleted:true});assert.equal(f.messages.length,2);
+});
+test('transport hints arriving during a periodic probe are coalesced and dispatched immediately afterward',async()=>{
+ const f=setup();let reply;
+ f.api.tabs.sendMessage=async(...args)=>{
+  f.messages.push(args);
+  if(f.messages.length===1)return new Promise(resolve=>{reply=resolve;});
+  return {ok:true};
+ };
+ await f.watch.track(1,'generating','doc1');
+ const periodic=f.watch.probe(1);await flush();assert.equal(f.messages.length,1);
+ await Promise.all([f.watch.probe(1,{transportCompleted:true}),f.watch.probe(1,{transportCompleted:true})]);
+ assert.equal(f.messages.length,1);reply({ok:true});await periodic;await flush();
+ assert.deepEqual(f.messages.map(args=>args[1]),[{type:'SCAN_NOW'},{type:'SCAN_NOW',transportCompleted:true}]);
+ await f.clock.advance(2000);assert.deepEqual(f.messages[2][1],{type:'SCAN_NOW'});
+});
+test('queued transport hints do not survive cancellation, removal, document replacement or restore',async()=>{
+ for(const lifecycle of ['cancel','remove','document','restore','new-job','generation','disabled']) {
+  const f=setup();let reply;
+  f.api.tabs.sendMessage=async(...args)=>{f.messages.push(args);if(f.messages.length===1)return new Promise(resolve=>{reply=resolve;});return {ok:true};};
+  await f.watch.track(1,'generating','doc1');const periodic=f.watch.probe(1);await flush();
+  await f.watch.probe(1,{transportCompleted:true});
+  if(lifecycle==='cancel'||lifecycle==='new-job')await f.watch.track(1,'watching','doc1');
+  if(lifecycle==='new-job')await f.watch.track(1,'generating','doc1');
+  if(lifecycle==='remove')await f.watch.remove(1);
+  if(lifecycle==='document')await f.watch.track(1,'generating','doc2');
+  if(lifecycle==='generation')await f.watch.track(1,'generating','doc1','new-generation');
+  if(lifecycle==='restore')await f.watch.restore();
+  if(lifecycle==='disabled')f.local.enabled=false;
+  reply({ok:true});await periodic;await flush();await f.clock.advance(2000);
+  assert.equal(f.messages.some(args=>args[1].transportCompleted===true),false,lifecycle);
+ }
+});
+test('hint dispatch carries only the current opaque lifecycle token',async()=>{
+ const f=setup();await f.watch.track(1,'generating','doc1','generation-one');
+ await f.watch.probe(1,{transportCompleted:true});
+ assert.deepEqual(f.messages[0][1],{type:'SCAN_NOW',transportCompleted:true,watchGeneration:'generation-one'});
+ assert.equal('watchGeneration' in f.session['probe-1'],false);
+});
+test('frozen tabs consume pending hints without an immediate retry loop',async()=>{
+ const f=setup();f.tabs.get(1).frozen=true;await f.watch.track(1,'generating','doc1');
+ await f.watch.probe(1,{transportCompleted:true});await flush();assert.equal(f.watch.pendingTransport.size,0);
+ assert.equal(f.messages.length,0);f.tabs.get(1).frozen=false;await f.clock.advance(30000);
+ assert.equal(f.messages.some(args=>args[1].transportCompleted),false);
+});
 test('only active jobs are polled, in the worker and in the correct document',async()=>{
   const f=setup();await f.watch.track(2,'watching','doc2');assert.equal(f.clock.pending(),0);
   await f.watch.track(1,'generating','doc1');await f.clock.advance(2000);

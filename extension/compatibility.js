@@ -7,23 +7,24 @@
   const OWNER_PUBLIC_KEY = null;
   const validatedProfiles = new WeakSet();
   const groups = {
-    stop:['button[data-testid="stop-button"]','button[aria-label="回答を停止"]','button[aria-label="Stop generating"]','button[aria-label="Stop response"]','button[aria-label="停止"]'],
+    composerSubmit:['button[type="submit"]','button[aria-label="送信"]'],
+    stop:['button[data-testid="stop-button"]','button[aria-label="回答を停止"]','button[aria-label="Stop generating"]','button[aria-label="Stop response"]','button[aria-label="停止"]','button[aria-label="Stop"]'],
     streaming:['[data-is-streaming="true"]','[data-stream-active="true"]'],
     finalCopy:['button[data-testid="copy-turn-action-button"]','button[aria-label="回答をコピーする"]','button[aria-label="Copy response"]'],
     finalRegenerate:['button[aria-label="回答を再生成"]','button[aria-label="Regenerate response"]'],
-    turn:['[data-turn]','[data-testid^="conversation-turn-"]'],
-    wrapper:['[data-testid^="conversation-turn-"]','article[data-turn-id]'],
-    user:['[data-message-author-role="user"]','[data-turn="user"]'],
-    assistant:['[data-message-author-role="assistant"]','[data-turn="assistant"]'],
-    message:['[data-message-author-role]','[data-turn]'],
+    turn:['[data-turn]','[data-testid^="conversation-turn-"]','[data-turn-key]'],
+    wrapper:['[data-testid^="conversation-turn-"]','article[data-turn-id]','[data-turn-key]'],
+    user:['[data-message-author-role="user"]','[data-turn="user"]','[data-user-message-bubble]'],
+    assistant:['[data-message-author-role="assistant"]','[data-turn="assistant"]','[data-conversation-role="assistant"]','[data-chatgpt-agent-turn-start]'],
+    message:['[data-message-author-role]','[data-turn]','[data-conversation-role="assistant"]','[data-chatgpt-agent-turn-start]','[data-user-message-bubble]'],
     searchUnit:['[data-chatgpt-search-unit-key]','[data-content-search-unit-key]'],
-    markdown:['[data-markdown-han-text]','[data-markdown-copy]'],
+    markdown:['[data-markdown-han-text]','[data-markdown-copy]','[data-markdown-text-style="assistant-message"]'],
     markdownCopy:['[data-markdown-copy]','button[data-testid="copy-turn-action-button"]'],
     timeline:['[data-app-action-timeline-scroll]','[data-app-action-timeline]'],
     request:['[data-request-input-activity-root]','[data-request-root]']
   };
   const SIGNALS = Object.freeze(Object.keys(groups));
-  const ATTRIBUTES = new Set(['data-testid','aria-label','data-is-streaming','data-stream-active','data-turn','data-turn-id','data-message-author-role','data-chatgpt-search-unit-key','data-content-search-unit-key','data-markdown-han-text','data-markdown-copy','data-app-action-timeline-scroll','data-app-action-timeline','data-request-input-activity-root','data-request-root']);
+  const ATTRIBUTES = new Set(['data-turn-key','data-conversation-role','data-chatgpt-agent-turn-start','data-user-message-bubble','data-markdown-text-style','data-chatgpt-search-message-ids','type','data-testid','aria-label','data-is-streaming','data-stream-active','data-turn','data-turn-id','data-message-author-role','data-chatgpt-search-unit-key','data-content-search-unit-key','data-markdown-han-text','data-markdown-copy','data-app-action-timeline-scroll','data-app-action-timeline','data-request-input-activity-root','data-request-root']);
   function exact(value, keys) {
     return value !== null && typeof value === 'object' && !Array.isArray(value) &&
       Object.keys(value).length === keys.length && keys.every(k => Object.hasOwn(value, k));

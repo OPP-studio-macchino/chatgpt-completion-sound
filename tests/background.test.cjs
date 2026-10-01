@@ -23,6 +23,20 @@ function harness(fail=false,{hydrate=false,hydrateLegacy=false,contentReply=asyn
   restart(){listeners.length=0;timers.clear();for(const handlers of Object.values(f.events))handlers.length=0;runWorker();}};
 }
 const key='a'.repeat(64);const msg={target:'background',type:'COMPLETE',key};
+test('network hint requires a strict successful endpoint and active watch',async()=>{
+ const h=harness(),messages=[];
+ h.chrome.tabs.sendMessage=async(...args)=>{messages.push(args);return {ok:true};};
+ const valid={tabId:1,frameId:0,method:'POST',statusCode:200,url:'https://chatgpt.com/backend-api/f/conversation'};
+ const emit=async details=>{h.webCompleted[0](details);for(let i=0;i<8;i++)await new Promise(setImmediate);};
+ await emit(valid);assert.equal(messages.length,0);
+ await h.send({target:'background',type:'STATUS',state:'generating'},{...h.chat,documentId:'doc1'});
+ for(const change of [{method:'GET'},{statusCode:500},{statusCode:302},{frameId:1},{tabId:-1},{url:'https://example.com/backend-api/f/conversation'},{url:'https://chatgpt.com/backend-api/f/conversation/extra'},{url:'https://chatgpt.com/backend-api/other'}])await emit({...valid,...change});
+ assert.equal(messages.length,0);
+ for(const path of ['f/conversation','conversation','codex/responses'])await emit({...valid,url:'https://chatgpt.com/backend-api/'+path});
+ assert.equal(messages.length,3);
+ for(const args of messages)assert.deepEqual(JSON.parse(JSON.stringify(args)),[1,{type:'SCAN_NOW',transportCompleted:true},{documentId:'doc1'}]);
+ await h.send({target:'background',type:'CANCEL'},{...h.chat,documentId:'doc1'});await emit(valid);assert.equal(messages.length,3);
+});
 test('same response in simultaneous tabs plays once',async()=>{const h=harness();const r=await Promise.all([h.send(msg),h.send(msg,{...h.chat,tab:{id:2}})]);assert.equal(h.plays.length,1);assert.equal(r[1].ignored,'duplicate');});
 test('different concurrent responses play twice and create one offscreen document',async()=>{const h=harness();await Promise.all([h.send(msg),h.send({...msg,key:'b'.repeat(64)})]);assert.equal(h.plays.length,2);assert.equal(h.creates(),1);assert.equal(h.local.playedCount,2);});
 test('disabled setting blocks automatic playback but allows user test',async()=>{const h=harness();h.local.enabled=false;assert.equal((await h.send(msg)).ignored,'disabled');await h.send({target:'background',type:'TEST'},h.own);assert.equal(h.plays.length,1);});

@@ -5,6 +5,7 @@
   globalThis.__chappySoundLoadedVersion = CONTENT_VERSION;
   globalThis.__chappySoundLoaded = true;
   const detector = new ChappyCompletionDetector();
+  let watchGeneration = crypto.randomUUID(), lastWatchGeneration = '';
   let enabled = false, disposed = false, scheduled = false, lastStatus = '', lastVisibility = '', lastReport = 0;
   let compatibilityHealth = null;
   let completedIdentity = '', completedRoute = '';
@@ -27,6 +28,10 @@
       .map(el => ChappyDOM.normalizedTestId(el.getAttribute('data-testid'))).filter(Boolean))].sort().slice(0, limit);
   }
   function buttonCounts(node, attribute) {
+    if (attribute.startsWith('data-')) {
+      const count = node?.querySelectorAll(`button[${attribute}]`).length || 0;
+      return count ? [{count}] : [];
+    }
     const counts = new Map();
     for (const button of node?.querySelectorAll('button') || []) {
       const value = button.getAttribute(attribute);
@@ -98,6 +103,7 @@
           JSON.stringify(chat) === JSON.stringify(content)) delete latest[unitAttributes[1]];
     });
   }
+  let completionStructure = '', structuralChangedAt = 0;
   let sequence = 0;
   let mutationNodes = [];
   const send = async (message, diagnostic, delivery) => {
@@ -126,10 +132,11 @@
     if (disposed) return;
     const now = Date.now();
     if ((pendingStatus?.payload.state ?? lastStatus) !== state ||
+        (state === 'generating' && (pendingStatus?.payload.watchGeneration ?? lastWatchGeneration) !== watchGeneration) ||
         (pendingStatus?.payload.visibility ?? lastVisibility) !== document.visibilityState ||
         (!pendingStatus && now - lastReport > 30000)) {
       pendingStatus = {payload:{target:'background', type:'STATUS', state,
-        version:CONTENT_VERSION, visibility:document.visibilityState}, attempt:0, lastAttempt:0, sending:false};
+        version:CONTENT_VERSION, visibility:document.visibilityState, watchGeneration}, attempt:0, lastAttempt:0, sending:false};
     }
     const current = pendingStatus;
     if (!current || current.sending || (current.attempt && now - current.lastAttempt < 1000)) return;
@@ -143,6 +150,7 @@
     if (!disposed && pendingStatus === current && reply?.ok === true) {
       lastStatus = state;
       lastVisibility = current.payload.visibility;
+      lastWatchGeneration = current.payload.watchGeneration;
       lastReport = Date.now();
       pendingStatus = null;
     }
@@ -167,7 +175,7 @@
     completeSending = false;
     if (pendingComplete === current && result?.ok === true) pendingComplete = null;
   }
-  async function scan(source = 'mutation') {
+  async function scan(source = 'mutation', transportGeneration = '') {
     if (disposed) return;
     const route = location.pathname;
     const event = {sequence:++sequence, source,
@@ -185,12 +193,33 @@
         if (!disposed && trace.includes(event)) event.identities[name] = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2,'0')).join('').slice(0,12);
       }).catch(() => {});
     }});
+    // Fixed-size completion signature. Cursor, timestamp and unrelated control
+    // churn must neither walk every descendant nor extend the quiet window.
+    const dom = event.dom;
+    const structure = JSON.stringify([snap.route, snap.user, snap.turn, snap.message,
+      snap.ready, snap.visibleStop, snap.streamingRendered, snap.composerIdle, snap.blocked, snap.error,
+      snap.compatibility?.state, enabled, detector.lifecycle,
+      dom.mainCount, dom.selectedMainIndex, dom.conversationWrapperCount,
+      dom.turnSelectorCount, dom.userRoleCount, dom.assistantRoleCount,
+      dom.stopVisibleCount, dom.streamingRenderedCount, dom.copyRenderedCount,
+      dom.opaqueTurn, dom.selectedIsUser, dom.selectedIsAssistant]);
+    if (structure !== completionStructure) {
+      completionStructure = structure;
+      structuralChangedAt = Date.now();
+    }
+    snap.structuralChangedAt = structuralChangedAt;
+    snap.completionEligible = !dom.selectedIsUser && (dom.selectedIsAssistant || dom.opaqueTurn);
     compatibilityHealth = snap.compatibility;
-    const completed = detector.step(snap, Date.now(), event.detector);
     const identity = snap.turn || snap.message || '';
+    const lifecycleBefore = detector.lifecycle;
+    snap.transportCompleted = transportGeneration === watchGeneration;
+    const completed = detector.step(snap, Date.now(), event.detector);
+    // DOM identities may change within one reply. Only detector lifecycle
+    // transitions create a new correlation token for an active job.
+    if (detector.active && detector.lifecycle !== lifecycleBefore) watchGeneration = crypto.randomUUID();
     if (completed) {completedIdentity = completed; completedRoute = snap.route;}
-    if (!enabled || snap.error || snap.blocked || snap.compatibility?.state === 'incompatible' || identity !== completedIdentity || snap.route !== completedRoute) completedIdentity = '';
-    const working = (snap.busy || detector.active) && !detector.cancelled;
+    if (!enabled || snap.visibleStop || snap.error || snap.blocked || snap.compatibility?.state === 'incompatible' || identity !== completedIdentity || snap.route !== completedRoute) completedIdentity = '';
+    const working = (snap.busy || detector.active) && !detector.cancelled && !completedIdentity;
     const state = !enabled ? 'off' : snap.blocked ? 'waiting' : snap.error ? 'error' : working ? 'generating' : snap.compatibility?.state === 'incompatible' ? 'waiting' : completedIdentity ? 'complete' : 'watching';
     event.state = state;
     void reportStatus(state, event.sequence, event.status);
@@ -226,17 +255,18 @@
     schedule();
   });
   observer.observe(document.documentElement, {subtree:true, childList:true, attributes:true, characterData:true,
-    attributeFilter:['data-testid','data-is-streaming','data-stream-active','data-message-id','data-turn-id','data-turn','aria-label','aria-hidden','hidden','class','style','data-markdown-copy','data-markdown-han-text','data-chatgpt-search-unit-key','data-content-search-unit-key']});
+    attributeFilter:['data-turn-key','data-conversation-role','data-chatgpt-agent-turn-start','data-user-message-bubble','data-markdown-text-style','data-chatgpt-search-message-ids','disabled','aria-disabled','type','contenteditable','data-testid','data-is-streaming','data-stream-active','data-message-id','data-turn-id','data-turn','aria-label','aria-hidden','hidden','class','style','data-markdown-copy','data-markdown-han-text','data-chatgpt-search-unit-key','data-content-search-unit-key']});
   function onClick(e) {
     if (disposed) return;
     if (e.target instanceof Element && e.target.closest(ChappyDOM.STOP)) {
       detector.cancel(); completedIdentity = '';
+      watchGeneration = crypto.randomUUID();
       void send({target:'background', type:'CANCEL', version:CONTENT_VERSION, visibility:document.visibilityState});
       schedule();
     }
   }
-  function onPopState() {if (disposed) return; detector.reset(); completedIdentity = ''; schedule();}
-  function onPageHide() {if (disposed) return; detector.reset(); completedIdentity = ''; void reportStatus('watching', sequence);}
+  function onPopState() {if (disposed) return; detector.reset(); watchGeneration = crypto.randomUUID(); completedIdentity = ''; schedule();}
+  function onPageHide() {if (disposed) return; detector.reset(); watchGeneration = crypto.randomUUID(); completedIdentity = ''; void reportStatus('watching', sequence);}
   function onMessage(msg, sender, reply) {
     if (disposed) return false;
     if (msg?.type === 'GET_CONTENT_VERSION') {
@@ -244,8 +274,8 @@
       return false;
     }
     if (msg?.type === 'GET_DIAGNOSTICS') {reply({ok:true,...JSON.parse(JSON.stringify({compatibility:compatibilityHealth, deliveryHistory, unitLifecycleHistory, structureHistory, unitSummaries, trace}))});return false;}
-    if (msg?.type === 'SCAN_NOW' && !disposed) {scan('scan-now').then(reply).catch(() => reply({ok:false}));return true;}
-    if (msg?.type === 'SET_ENABLED') {enabled = msg.enabled === true; detector.reset(); completedIdentity = ''; schedule();}
+    if (msg?.type === 'SCAN_NOW' && !disposed) {scan('scan-now', chrome.runtime.id && sender.id === chrome.runtime.id && msg.transportCompleted === true ? msg.watchGeneration : '').then(reply).catch(() => reply({ok:false}));return true;}
+    if (msg?.type === 'SET_ENABLED') {enabled = msg.enabled === true; detector.reset(); watchGeneration = crypto.randomUUID(); completedIdentity = ''; schedule();}
     return false;
   }
   document.addEventListener('click', onClick, true);

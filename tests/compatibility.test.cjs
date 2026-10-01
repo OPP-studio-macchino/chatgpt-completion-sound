@@ -115,9 +115,10 @@ test('profiles cannot execute code, select prose or redirect categories to arbit
   assert.equal(C.selector('stop'),C.packaged.signals.stop.join(', '));
 });
 test('JP and EN stop candidates work independently; health exports fixed structural metadata only', () => {
-  for (const label of ['回答を停止','停止','Stop response','Stop generating']) {
+  for (const label of ['回答を停止','停止','Stop response','Stop generating','Stop']) {
     const d=fixture('<section data-turn="user"><p>PRIVATE_PROMPT</p></section><button aria-label="'+label+'">PRIVATE_LABEL</button>');
     const s=DOM.read(d,'/c/PRIVATE_URL');assert.equal(s.busy,true);
+    assert.equal(s.visibleStop,true);assert.equal(d.querySelector('button').matches(DOM.STOP),true);
     assert.equal(s.compatibility.state,'healthy');
     assert.equal(JSON.stringify(s.compatibility).includes('PRIVATE'),false);
     assert.deepEqual(Object.keys(s.compatibility).sort(),['matched','profileId','reasons','remoteStatus','revision','revisionId','state','timestamp']);
