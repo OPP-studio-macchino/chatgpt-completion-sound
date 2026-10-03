@@ -5,6 +5,7 @@
   globalThis.__chappySoundLoadedVersion = CONTENT_VERSION;
   globalThis.__chappySoundLoaded = true;
   const detector = new ChappyCompletionDetector();
+  const dotsSession = crypto.randomUUID();
   let watchGeneration = crypto.randomUUID(), lastWatchGeneration = '';
   let enabled = false, disposed = false, scheduled = false, lastStatus = '', lastVisibility = '', lastReport = 0;
   let compatibilityHealth = null;
@@ -158,6 +159,7 @@
   function dispose() {
     if (disposed) return;
     disposed = true;
+    detector.reset();
     observer.disconnect();
     clearInterval(heartbeat);
     document.removeEventListener('click', onClick, true);
@@ -210,6 +212,7 @@
     snap.structuralChangedAt = structuralChangedAt;
     snap.completionEligible = !dom.selectedIsUser && (dom.selectedIsAssistant || dom.opaqueTurn);
     compatibilityHealth = snap.compatibility;
+    snap.dotsSession = dotsSession;
     const identity = snap.turn || snap.message || '';
     const lifecycleBefore = detector.lifecycle;
     snap.transportCompleted = transportGeneration === watchGeneration;
@@ -218,9 +221,10 @@
     // transitions create a new correlation token for an active job.
     if (detector.active && detector.lifecycle !== lifecycleBefore) watchGeneration = crypto.randomUUID();
     if (completed) {completedIdentity = completed; completedRoute = snap.route;}
-    if (!enabled || snap.visibleStop || snap.error || snap.blocked || snap.compatibility?.state === 'incompatible' || identity !== completedIdentity || snap.route !== completedRoute) completedIdentity = '';
-    const working = (snap.busy || detector.active) && !detector.cancelled && !completedIdentity;
-    const state = !enabled ? 'off' : snap.blocked ? 'waiting' : snap.error ? 'error' : working ? 'generating' : snap.compatibility?.state === 'incompatible' ? 'waiting' : completedIdentity ? 'complete' : 'watching';
+    if (!enabled || snap.visibleStop || snap.error || snap.blocked || snap.compatibility?.state === 'incompatible' ||
+        (snap.dots ? detector.baseline !== completedIdentity || snap.verifiedWorkSpinnerCount > 0 : identity !== completedIdentity) || snap.route !== completedRoute) completedIdentity = '';
+    const working = (snap.dots ? detector.active || detector.startupHold : snap.busy || detector.active) && !detector.cancelled && !completedIdentity;
+    const state = !enabled ? 'off' : snap.dots && (detector.active || detector.startupHold) && !detector.cancelled ? 'generating' : snap.blocked ? 'waiting' : snap.error ? 'error' : working ? 'generating' : snap.compatibility?.state === 'incompatible' ? 'waiting' : completedIdentity ? 'complete' : 'watching';
     event.state = state;
     void reportStatus(state, event.sequence, event.status);
     if (completed) {
@@ -255,7 +259,7 @@
     schedule();
   });
   observer.observe(document.documentElement, {subtree:true, childList:true, attributes:true, characterData:true,
-    attributeFilter:['data-turn-key','data-conversation-role','data-chatgpt-agent-turn-start','data-user-message-bubble','data-markdown-text-style','data-chatgpt-search-message-ids','disabled','aria-disabled','type','contenteditable','data-testid','data-is-streaming','data-stream-active','data-message-id','data-turn-id','data-turn','aria-label','aria-hidden','hidden','class','style','data-markdown-copy','data-markdown-han-text','data-chatgpt-search-unit-key','data-content-search-unit-key']});
+    attributeFilter:['data-turn-key','data-conversation-role','data-chatgpt-agent-turn-start','data-user-message-bubble','data-markdown-text-style','data-chatgpt-search-message-ids','disabled','aria-disabled','type','contenteditable','data-testid','data-is-streaming','data-stream-active','data-message-id','data-turn-id','data-turn','aria-label','aria-hidden','hidden','class','style','data-markdown-copy','data-markdown-han-text','data-chatgpt-search-unit-key','data-content-search-unit-key','data-orbit-profile','data-state','data-status','role','aria-modal']});
   function onClick(e) {
     if (disposed) return;
     if (e.target instanceof Element && e.target.closest(ChappyDOM.STOP)) {
@@ -273,7 +277,7 @@
       if (chrome.runtime.id && sender.id === chrome.runtime.id) reply({ok:true,version:CONTENT_VERSION,protocol:ChappyCompatibility.CONTENT_PROTOCOL});
       return false;
     }
-    if (msg?.type === 'GET_DIAGNOSTICS') {reply({ok:true,...JSON.parse(JSON.stringify({compatibility:compatibilityHealth, deliveryHistory, unitLifecycleHistory, structureHistory, unitSummaries, trace}))});return false;}
+    if (msg?.type === 'GET_DIAGNOSTICS') {reply({ok:true,...JSON.parse(JSON.stringify({dotsVerifiedWorkSpinners:/^\/dots(?:\/|$)/.test(location.pathname) ? ChappyDOM.dotsWorkSpinners(document) : null, dotsTopStatus:ChappyDOM.dotsTopStatus(document), compatibility:compatibilityHealth, deliveryHistory, unitLifecycleHistory, structureHistory, unitSummaries, trace}))});return false;}
     if (msg?.type === 'SCAN_NOW' && !disposed) {scan('scan-now', chrome.runtime.id && sender.id === chrome.runtime.id && msg.transportCompleted === true ? msg.watchGeneration : '').then(reply).catch(() => reply({ok:false}));return true;}
     if (msg?.type === 'SET_ENABLED') {enabled = msg.enabled === true; detector.reset(); watchGeneration = crypto.randomUUID(); completedIdentity = ''; schedule();}
     return false;

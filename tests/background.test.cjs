@@ -119,3 +119,24 @@ test('DOM completion after a network probe can still notify exactly once',async(
  await h.send(msg);await h.send(msg);
  assert.equal(h.plays.length,1);assert.equal(h.groups.get(h.tabs.get(1).groupId).color,'blue');
 });
+
+test('dots completion delivery colors blue and plays once per spinner lifecycle across worker restart',async()=>{
+ const h=harness();h.local.colorTabs=true;
+ const sender={...h.chat,url:'https://chatgpt.com/dots/fixture',documentId:'fixture-document'};
+ const status=state=>h.send({target:'background',type:'STATUS',state},sender);
+ for(const completionKey of ['c'.repeat(64),'d'.repeat(64)]){
+  await status('generating');
+  assert.equal(h.groups.get(h.tabs.get(1).groupId).color,'yellow');
+  const before=h.plays.length;
+  await status('complete');
+  const completion={target:'background',type:'COMPLETE',key:completionKey};
+  await h.send(completion,sender);
+  assert.equal(h.groups.get(h.tabs.get(1).groupId).color,'blue');
+  assert.equal(h.plays.length,before+1);
+  assert.equal((await h.send(completion,sender)).ignored,'duplicate');
+  h.restart();
+  assert.equal((await h.send(completion,sender)).ignored,'duplicate');
+  assert.equal(h.plays.length,before+1);
+ }
+ assert.equal(h.local.playedCount,2);
+});

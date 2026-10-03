@@ -17,6 +17,8 @@ test('popup reads only GET_DIAGNOSTICS, displays unitLifecycleHistory first and 
     'data-content-search-unit-key':[{keyHash:'fedcba543210', descendantCounts:{button:1}}]
   };
   let fail = false;
+  const dotsTopStatus = {state: "thinking", matchedVisibleStatusButtons:1, ignoredHiddenStatusButtons:1, spans:2, svgs:0};
+  const dotsVerifiedWorkSpinners = {verifiedWorkSpinnerCount:2, bySignature:{sharedAnimateSpin:2, recentActivityVerified:0, ninePathVerified:2}};
   const context = vm.createContext({document, chrome:{
     storage:{local:{get:async () => ({})}, session:{get:async () => ({})}, onChanged:{addListener() {}}},
     permissions:{contains:async () => false},
@@ -24,7 +26,7 @@ test('popup reads only GET_DIAGNOSTICS, displays unitLifecycleHistory first and 
     tabs:{query:async () => [{id:17}], sendMessage:async (id, message) => {
       requests.push({id, message});
       if (fail) throw Error('synthetic private exception');
-      return {ok:true, unitLifecycleHistory, structureHistory, unitSummaries, trace:Array.from({length:12}, (_, sequence) => ({sequence,
+      return {ok:true, dotsVerifiedWorkSpinners, dotsTopStatus, unitLifecycleHistory, structureHistory, unitSummaries, trace:Array.from({length:12}, (_, sequence) => ({sequence,
         ...(sequence === 1 ? {source:'mutation', mutationNodes:[{tag:'form'}]} : {}),
         dom:{census:{button:sequence}}}))};
     }}
@@ -41,6 +43,8 @@ test('popup reads only GET_DIAGNOSTICS, displays unitLifecycleHistory first and 
   assert.deepEqual(payload.unitLifecycleHistory, unitLifecycleHistory);
   assert.deepEqual(payload.structureHistory, structureHistory);
   assert.deepEqual(payload.unitSummaries, unitSummaries);
+  assert.deepEqual(payload.dotsTopStatus, dotsTopStatus);
+  assert.deepEqual(payload.dotsVerifiedWorkSpinners, dotsVerifiedWorkSpinners);
   assert.deepEqual(payload.latestMutationNodes, [{tag:'form'}]);
   assert.deepEqual(payload.trace.map(event => event.sequence), [4, 5, 6, 7, 8, 9, 10, 11]);
   assert.equal(payload.trace.at(-1).dom.census.button, 11);

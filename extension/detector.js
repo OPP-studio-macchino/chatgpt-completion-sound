@@ -27,10 +27,80 @@
       this.quietSince = 0;
       this.generationEvidence = false;
       this.previousBusy = false;
+      this.lifecycleInterrupted = false;
+      this.startupHold = false;
+      this.startupSince = 0;
+      this.startupEvidenceLatched = false;
     }
-    cancel() { this.generationEvidence = false; this.quietCandidate = ''; this.lifecycle++; this.transportCompleted = false; this.transportCandidate = ''; this.cancelled = true; this.candidate = ''; this.candidateDelay = this.settleMs; }
-    reset(baseline = '') { this.generationEvidence = false; this.quietCandidate = ''; this.lifecycle++; this.transportCompleted = false; this.transportCandidate = ''; this.active = false; this.cancelled = false; this.candidate = ''; this.candidateDelay = this.settleMs; this.baseline = baseline; }
+    cancel() { this.startupHold = false; this.generationEvidence = false; this.quietCandidate = ''; this.lifecycle++; this.transportCompleted = false; this.transportCandidate = ''; this.cancelled = true; this.candidate = ''; this.candidateDelay = this.settleMs; }
+    reset(baseline = '') { this.startupHold = false; this.startupEvidenceLatched = false; this.lifecycleInterrupted = false; this.generationEvidence = false; this.quietCandidate = ''; this.lifecycle++; this.transportCompleted = false; this.transportCandidate = ''; this.active = false; this.cancelled = false; this.candidate = ''; this.candidateDelay = this.settleMs; this.baseline = baseline; }
+    stepDots(s, now, diagnostic) {
+      if (this.route !== s.route) this.reset();
+      this.route = s.route;
+      if (this.dotsSession !== s.dotsSession) this.reset();
+      this.dotsSession = s.dotsSession;
+      const count = s.verifiedWorkSpinnerCount;
+      const stable = Number.isInteger(count) && count >= 0;
+      const startupEvidence = stable && count > 0 ? "spinner" :
+        s.dotsTopStatus?.state === "thinking" ? "thinking" : s.visibleStop ? "stop" : "none";
+      // One bounded bridge per startup; observations cannot extend its deadline.
+      if (this.startupHold && now - this.startupSince >= 5000) this.startupHold = false;
+      if (!this.startupHold && startupEvidence === "none") this.startupEvidenceLatched = false;
+      let completed = null;
+      if (!s.enabled) {
+        this.reset();
+      } else if (this.cancelled) {
+        this.active = false;
+        this.lifecycleInterrupted = false;
+        if (stable && count === 0 && !s.busy) this.reset();
+      } else if (s.error || s.blocked) {
+        this.startupHold = false;
+        this.startupEvidenceLatched = true;
+        // Retain unresolved work, but invalidate all pre-interruption settling.
+        if (this.active) this.lifecycleInterrupted = true;
+        this.candidate = '';
+      } else if (stable && count > 0) {
+        this.startupHold = false;
+        if (!this.active) {
+          this.reset();
+          this.active = true;
+          // Local document correlation and sequence, never task prose.
+          this.baseline = `${s.dotsSession}:dots:${this.lifecycle}`;
+        }
+        this.startupEvidenceLatched = true;
+        this.lifecycleInterrupted = false;
+        this.candidate = '';
+      } else if (!stable) {
+        // Invalid counts cannot establish an uninterrupted zero settle.
+        this.candidate = '';
+      } else if (this.active && !this.lifecycleInterrupted) {
+        if (!this.candidate) {
+          this.candidate = this.baseline;
+          this.since = now;
+          this.candidateDelay = 8000;
+        } else if (now - this.since >= this.candidateDelay) {
+          completed = this.baseline;
+          this.active = false;
+          this.candidate = '';
+        }
+      }
+      if (s.enabled && !this.cancelled && !s.error && !s.blocked && !this.active && !completed &&
+          !this.startupEvidenceLatched && (startupEvidence === "thinking" || startupEvidence === "stop")) {
+        this.startupHold = true;
+        this.startupSince = now;
+        this.startupEvidenceLatched = true;
+      }
+      if (diagnostic) Object.assign(diagnostic, {startupHold:this.startupHold,
+        startupHoldRemaining:this.startupHold ? Math.ceil(Math.max(0, 5000 - (now - this.startupSince)) / 1000) + "s" : "0s",
+        startupEvidence, armedLifecycle:this.active, activeAfter:this.active,
+        cancelledAfter:this.cancelled, candidatePresent:!!this.candidate, completed:!!completed,
+        verifiedBlocked:!!s.blocked, verifiedError:!!s.error, lifecycleInterrupted:this.lifecycleInterrupted,
+        zeroSettleActive:!!this.candidate, verifiedSpinnerCount:stable ? count : null});
+      return completed;
+    }
+
     step(s, now, diagnostic) {
+      if (s.dots) return this.stepDots(s, now, diagnostic);
       const identity = completionIdentity(s);
       const activeBefore = this.active, lifecycleBefore = this.lifecycle;
       const initialized = this.route !== null;

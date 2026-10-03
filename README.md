@@ -11,6 +11,10 @@
 - **Sound**: plays once on completion, including when the ChatGPT tab is in the background.
 - **Manual stop / error / navigation**: no completion notification.
 
+On `/dots`, Thinking or Stop turns the tab yellow immediately, with a 5-second startup hold while waiting for the first verified work spinner. Rendered work spinners are detected across the page, regardless of their position. After a spinner has been observed, yellow remains until all verified work spinners disappear for an uninterrupted 8 seconds. A returning spinner cancels that wait; completion turns the tab blue and plays the configured sound once. Initial absence and Thinking alone never establish completion. Generic dialogs or alerts do not release yellow; a verified modal or error prevents completion until fresh spinner evidence appears. Manual cancel releases the lifecycle.
+
+Dots completion is a **heuristic**, not a guaranteed platform terminal state: a verified running spinner disappears and remains absent for 8 seconds. Dots exposes no verified global terminal signal. Local diagnostics retain only spinner counts and bounded lifecycle state, without task text, IDs, or locations.
+
 No OpenAI API key is required. No server is required. Conversation text and the user's WAV file are not sent to an external service.
 
 > **Project status:** active development. Current working-tree version: **v0.3.0 — Compatibility Shield / 互換性シールド**. Fresh automated results and separate live acceptance status are recorded in [docs/VALIDATION.md](docs/VALIDATION.md). The v0.2.12 live PASS is historical, not evidence for v0.3.0.
@@ -61,7 +65,7 @@ See [SECURITY.md](SECURITY.md), [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md), an
 | `storage` | Stores local settings, the user-selected audio data, deduplication state, and non-content diagnostics. |
 | `offscreen` | Plays completion audio from a Manifest V3 background context. |
 | `alarms` | Recovers monitoring after service-worker suspension. |
-| `scripting` | Re-injects the current content scripts into already-open ChatGPT tabs after extension reload. |
+| `scripting` | Re-injects current content scripts after reload. |
 | `webRequest` | Observes completion metadata for ChatGPT requests only to trigger a DOM re-check in background tabs; it does not read request/response bodies or treat transport completion as task completion. |
 | `https://chatgpt.com/*` | Restricts page access to ChatGPT. |
 | optional `tabGroups` | Adds yellow/blue visual state when explicitly enabled by the user. |

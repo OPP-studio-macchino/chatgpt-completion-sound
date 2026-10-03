@@ -74,6 +74,7 @@
     return {main:mains[selectedMainIndex] || null, mainCount:mains.length, selectedMainIndex};
   }
   function read(doc, route, enabled = true, diagnostic) {
+    if (/^\/dots(?:\/|$)/.test(route)) return readDots(doc, route, enabled, diagnostic);
     const STOP = signal('stop'), COPY = signal('finalCopy');
     const {main, mainCount, selectedMainIndex} = selectMain(doc);
     const empty = {route, enabled, user:'', message:'', turn:'', ready:false, provisional:false, busy:false, blocked:false, error:false};
@@ -240,6 +241,120 @@
       composerIdle:composerIdle && rendered(answerNode || (searchUnitAssistant ? turn : null)), blocked, error, compatibility:health,
       ...(searchUnitAssistant && ready ? {settleMsOverride:timelineScoped ? 2000 : 500} : {})};
   }
-  root.ChappyDOM = {read, get STOP() {return signal('stop');}, rendered, structuralSummary, normalizedTestId};
+  // The observed dots UI has nested mains, opaque message IDs and a Codex
+  // composer. Answer copy controls also occur on intermediate messages.
+  // Completion is an eight-second zero-spinner heuristic after observed work.
+  function dotsWorkSpinner(svg) {
+    // Union of verified primitive signatures; no task text or panel location.
+    return svg?.classList.contains('motion-safe:animate-spin') && svg.children.length === 9 &&
+      [...svg.children].every(child => child.localName === 'path') ? 'wrappedNinePathSvg' : null;
+  }
+  function dotsWorkSpinners(doc) {
+    const bySignature = {sharedAnimateSpin:0, recentActivityVerified:0, ninePathVerified:0};
+    let verifiedWorkSpinnerCount = 0;
+    // Decorative aria-hidden icons still render, including in background tabs.
+    const shown = node => {
+      if (!node.isConnected || !node.getClientRects().length) return false;
+      for (let parent = node; parent; parent = parent.parentElement) {
+        const style = doc.defaultView.getComputedStyle(parent);
+        if (parent.hidden || style.display === 'none' || ['hidden','collapse'].includes(style.visibility) || style.opacity === '0' ||
+            parent.classList.contains('invisible') || parent.getAttribute('aria-hidden') === 'true' && !parent.matches('span, svg, path')) return false;
+      }
+      return true;
+    };
+    for (const spinner of doc.querySelectorAll('[class~="motion-safe:animate-spin"]')) {
+      if (!shown(spinner) || spinner.closest('nav, [role="navigation"], [role="complementary"], aside, form:has(textarea), form:has([contenteditable="true"]), [data-codex-composer-root], [contenteditable="true"], video, audio, picture, [role="img"], [data-avatar]')) continue;
+      const control = !!spinner.closest('button, [role="button"]');
+      const recent = !!spinner.closest('[role="dialog"][data-orbit-profile="true"][data-state="open"]');
+      const ninePath = spinner.localName === 'svg' && !!dotsWorkSpinner(spinner);
+      if (!control && !recent && !ninePath) continue;
+      verifiedWorkSpinnerCount++;
+      bySignature.sharedAnimateSpin++;
+      if (recent) bySignature.recentActivityVerified++;
+      if (ninePath) bySignature.ninePathVerified++;
+    }
+    // Evidence families overlap; the total counts each rendered element once.
+    return {verifiedWorkSpinnerCount, bySignature};
+  }
+  function readDots(doc, route, enabled, diagnostic) {
+    const composers = [...doc.querySelectorAll('[data-codex-composer-root]')];
+    const composer = composers.length === 1 ? composers[0] : null;
+    const stops = [...composer?.querySelectorAll(signal('stop')) || []].filter(rendered);
+    const topStatus = dotsTopStatus(doc);
+    const spinners = dotsWorkSpinners(doc);
+    // Verified page-wide spinners are primary; Thinking and Stop support running
+    // evidence but cannot arm completion. Active is an internal handoff.
+    const busy = topStatus.state === 'thinking' || spinners.verifiedWorkSpinnerCount > 0 || stops.length > 0;
+    // Only modal structure establishes blocking; the profile/work panel is observational UI.
+    const blocked = [...doc.querySelectorAll('[role="alertdialog"], [role="dialog"][aria-modal="true"]')]
+      .some(dialog => !(dialog.getAttribute('role') === 'dialog' &&
+        dialog.getAttribute('data-orbit-profile') === 'true') && rendered(dialog));
+    const knownStatus = Number.isInteger(spinners.verifiedWorkSpinnerCount);
+    // Exact fixed metadata only. Generic alerts and arbitrary prose prove nothing.
+    const errorStates = new Set(['error', 'failed', 'エラー', '失敗']);
+    const error = [...doc.querySelectorAll('[role="alert"], [role="status"]')].some(control =>
+      rendered(control) && ['data-state', 'data-status', 'aria-label'].some(name =>
+        errorStates.has(control.getAttribute(name))));
+    const health = {state:knownStatus ? 'healthy' : 'incompatible', reasons:knownStatus ? [] : ['STRUCTURE_UNKNOWN'], matched:knownStatus ? ['dots-work-spinner'] : [],
+      profileId:compatibility.activeProfile().profileId, revision:compatibility.activeProfile().revision,
+      revisionId:compatibility.activeProfile().revisionId, timestamp:Date.now(), remoteStatus:compatibility.REMOTE_STATUS};
+    if (diagnostic) Object.assign(diagnostic.dom, {busy, ready:false, provisional:false, blocked, error,
+      verifiedBlocked:blocked, verifiedError:error, verifiedSpinnerCount:spinners.verifiedWorkSpinnerCount,
+      mainCount:doc.querySelectorAll('main').length, stopMatchedCount:stops.length, dotsTopStatus:topStatus, dotsVerifiedWorkSpinners:spinners, compatibility:health});
+    return {dots:true, dotsTopStatus:topStatus, dotsVerifiedWorkSpinners:spinners,
+      verifiedWorkSpinnerCount:spinners.verifiedWorkSpinnerCount, route, enabled, user:'', message:'', turn:'', busy, visibleStop:stops.length > 0,
+      ready:false, provisional:false, blocked, error, compatibility:health};
+  }
+  // Fixed UI vocabulary only; neither status establishes whole-task completion.
+  function dotsTopStatus(doc) {
+    const result = {state:'missing', matchedVisibleStatusButtons:0, ignoredHiddenStatusButtons:0, ignoredHiddenNodes:0, spans:0, svgs:0};
+    const shown = el => {
+      if (!rendered(el)) return false;
+      for (let p = el; p?.nodeType === 1; p = p.parentElement) {
+        if (p.classList.contains('invisible')) return false;
+      }
+      return true;
+    };
+    const panels = [...doc.querySelectorAll('[role="dialog"][data-orbit-profile="true"][data-state="open"]')].filter(shown);
+    if (panels.length > 1) {result.state = 'ambiguous'; return result;}
+    if (!panels.length) return result;
+    const buttons = [];
+    for (const button of panels[0].querySelectorAll('button.group\\/aeon-status')) {
+      if (shown(button)) buttons.push(button);
+      else result.ignoredHiddenStatusButtons++;
+    }
+    result.matchedVisibleStatusButtons = buttons.length;
+    if (buttons.length !== 1) {
+      if (buttons.length) result.state = 'ambiguous';
+      return result;
+    }
+    const labels = new Map([['思考中','thinking'], ['有効','active'], ['Thinking','thinking'], ['Active','active']]);
+    const matches = new Set();
+    let visited = 0, bounded = true;
+    const walk = (node, depth) => {
+      if (++visited > 16 || depth > 4) {bounded = false; return;}
+      if (node.nodeType === 3) {
+        const raw = node.nodeValue;
+        if (raw.length <= 32 && labels.has(raw.trim())) matches.add(labels.get(raw.trim()));
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      if (!shown(node)) {result.ignoredHiddenNodes++; return;}
+      if (node.matches('article, textarea, input, [contenteditable], [data-message-author-role], [data-conversation-role], [data-markdown-text-style], button')) {bounded = false; return;}
+      if (node.localName === 'span') result.spans++;
+      if (node.localName === 'svg') result.svgs++;
+      for (const child of node.childNodes) {
+        if (!bounded) break;
+        walk(child, depth + 1);
+      }
+    };
+    for (const child of buttons[0].childNodes) {
+      if (!bounded) break;
+      walk(child, 1);
+    }
+    result.state = !bounded || !matches.size ? 'unknown' : matches.size > 1 ? 'ambiguous' : [...matches][0];
+    return result;
+  }
+  root.ChappyDOM = {read, dotsWorkSpinners, dotsTopStatus, get STOP() {return signal('stop');}, rendered, structuralSummary, normalizedTestId};
   if (typeof module !== 'undefined') module.exports = root.ChappyDOM;
 })(globalThis);

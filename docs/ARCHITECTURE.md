@@ -40,6 +40,8 @@ Plays the user-selected local WAV and returns an acknowledgement only after play
 8. Optional tab group becomes blue.
 9. Offscreen audio plays once and acknowledges completion.
 
+On `/dots`, Thinking or Stop starts yellow with a five-second startup hold. The reader detects rendered verified work spinners across the page, independent of position. Once a spinner arms the lifecycle, its absence starts an eight-second settle while yellow remains; reappearance cancels the settle. Stable zero completes once through the same delivery/deduplication pipeline. This is a heuristic, not a guaranteed platform terminal state. Thinking alone never proves completion. Verified modal/error states invalidate settling and require fresh spinner evidence; manual cancel or navigation disarms the lifecycle. Diagnostics retain spinner counts and bounded lifecycle state only.
+
 ## Why the worker also probes active jobs
 
 Hidden-page timers can be throttled. The extension therefore does not rely on page timers alone. Only tabs already observed as active jobs are probed, limiting work and avoiding historical-answer notifications.

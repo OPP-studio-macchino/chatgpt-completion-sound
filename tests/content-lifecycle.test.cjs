@@ -12,10 +12,342 @@ function diagnostics(f) {
   return JSON.parse(JSON.stringify(result));
 }
 
+test('dots Thinking bridges transcript changes but cannot hold yellow forever without verified work', async t => {
+  const {panel} = require('./dots-activity-fixture.cjs');
+  for (const visibility of ['visible','hidden']) {
+    const f = await fixture(); t.after(() => f.dispose());
+    f.context.location.pathname = '/dots/fixture';
+    Object.defineProperty(f.document, 'visibilityState', {value:visibility, configurable:true});
+    const running = panel([false]).replace('<h2>', '<button class="group/aeon-status"><span class="invisible">Active</span><span>Thinking</span></button><h2>');
+    const composer = '<div data-codex-composer-root><button aria-label="送信"></button></div>';
+    for (const [time, transcript] of [[100,''], [1000,'<article data-message-id="chunk"><div data-markdown-copy><button></button></div>PRIVATE_CHUNK</article>'], [2000,'']]) {
+      await f.scan(running + composer + transcript, time);
+      assert.equal(f.sent.findLast(m => m.type === 'STATUS').state, 'generating');
+    }
+    await f.scan(null, 60000); await f.settleHashes();
+    assert.equal(f.sent.findLast(m => m.type === 'STATUS').state, 'watching');
+    const dom = diagnostics(f).trace.at(-1).dom;
+    assert.equal(dom.dotsTopStatus.state, 'thinking');
+    assert.equal(dom.dotsTopStatus.ignoredHiddenNodes, 1);
+    assert.equal(dom.dotsVerifiedWorkSpinners.verifiedWorkSpinnerCount, 0);
+    assert.equal(f.sent.some(m => m.type === 'COMPLETE' || m.type === 'STATUS' && m.state === 'complete'), false);
+  }
+});
+
+for (const evidence of ['thinking', 'stop']) {
+  test(`dots startup ${evidence} bridges disappearance into verified work without a yellow drop`, async t => {
+    const {panel} = require('./dots-activity-fixture.cjs');
+    const f = await fixture(); t.after(() => f.dispose());
+    f.context.location.pathname = '/dots/fixture';
+    const startup = evidence === 'thinking' ? panel([]).replace('<h2>',
+      '<button class="group/aeon-status"><span>Thinking</span></button><h2>') :
+      '<div data-codex-composer-root><button data-testid="stop-button"></button></div>';
+    for (const [html, time] of [[startup,100], ['',600], ['<div role="dialog"></div><div role="alert">PRIVATE</div>',1100], [panel([true]),2100]]) {
+      await f.scan(html, time);
+      assert.equal(f.sent.findLast(m => m.type === 'STATUS').state, 'generating');
+      assert.equal(f.sent.filter(m => m.type === 'COMPLETE').length, 0);
+    }
+    const trace = diagnostics(f).trace;
+    assert.equal(trace.find(e => e.detector.startupEvidence === evidence).detector.startupHoldRemaining, '5s');
+    assert.equal(trace.at(-1).detector.startupHold, false);
+    assert.equal(trace.at(-1).detector.armedLifecycle, true);
+    assert.equal(trace.at(-1).detector.startupEvidence, 'spinner');
+    assert.doesNotMatch(JSON.stringify(diagnostics(f)), /PRIVATE/);
+  });
+}
+
+for (const interruption of ['expiry','cancel','block','error','route','pagehide','disable','reinject']) {
+  test(`dots startup ${interruption} releases yellow without completion`, async t => {
+    const f = await fixture(); t.after(() => f.dispose());
+    f.context.location.pathname = '/dots/fixture';
+    const stop = '<div data-codex-composer-root><button data-testid="stop-button"><span></span></button></div>';
+    await f.scan(stop, 100);
+    assert.equal(diagnostics(f).trace.at(-1).detector.startupHold, true);
+    if (interruption === 'cancel') f.document.querySelector('button span').dispatchEvent(new f.window.Event('click', {bubbles:true}));
+    if (interruption === 'route') f.context.location.pathname = '/dots/another';
+    if (interruption === 'pagehide') for (const fn of f.windowListeners.get('pagehide')) fn();
+    if (interruption === 'disable') for (const fn of f.messages) fn({type:'SET_ENABLED',enabled:false}, {}, () => {});
+    // Remove startup evidence before reinjection, so this represents a new idle document.
+    if (interruption === 'reinject') {f.document.querySelector('main').innerHTML = ''; await f.inject();}
+    const html = interruption === 'block' ? '<div role="dialog" aria-modal="true"></div>' :
+      interruption === 'error' ? '<div role="alert" data-state="error"></div>' : '';
+    await f.scan(html, interruption === 'expiry' ? 5099 : 600);
+    if (interruption === 'expiry') {
+      assert.equal(f.sent.findLast(m => m.type === 'STATUS').state, 'generating');
+      await f.scan(null, 5100);
+    }
+    assert.equal(diagnostics(f).trace.at(-1).detector.startupHold, false);
+    assert.notEqual(f.sent.findLast(m => m.type === 'STATUS').state, 'generating');
+    await f.scan('', 20000); await f.settleHashes();
+    assert.equal(f.sent.filter(m => m.type === 'COMPLETE').length, 0);
+  });
+}
+
+test('dots spinner lifecycle holds yellow through churn and settle, completes once, and rearms', async t => {
+  const {panel} = require('./dots-activity-fixture.cjs');
+  const html = (rows, state = 'Active') => panel(rows).replace('<h2>',
+    `<button class="group/aeon-status"><span>${state}</span></button><h2>`);
+  for (const visibility of ['visible','hidden']) {
+    const f = await fixture(); t.after(() => f.dispose());
+    f.context.location.pathname = '/dots/fixture';
+    Object.defineProperty(f.document, 'visibilityState', {value:visibility, configurable:true});
+    const state = () => f.sent.findLast(m => m.type === 'STATUS').state;
+    const completions = () => f.sent.filter(m => m.type === 'COMPLETE');
+    await f.scan(html([false,false]), 100);
+    await f.scan(null, 10000);
+    assert.equal(state(), 'watching');
+    assert.equal(diagnostics(f).trace.at(-1).detector.activeAfter, false);
+    assert.equal(completions().length, 0);
+    for (const [time, status] of [[11000,'Thinking'],[21000,'有効'],[31000,'Thinking'],[41000,'Active']]) {
+      await f.scan(html([false,true,true], status), time);
+      assert.equal(state(), 'generating');
+      assert.equal(completions().length, 0);
+    }
+    await f.scan(html([false,false,true]), 42000);
+    assert.equal(state(), 'generating');
+    await f.scan(html([false,false,false]), 43000);
+    await f.scan(null, 50999);
+    assert.equal(state(), 'generating');
+    assert.equal(completions().length, 0);
+    await f.scan(html([true,false]), 51000);
+    assert.equal(diagnostics(f).trace.at(-1).detector.candidatePresent, false);
+    await f.scan(html([false,false]), 52000);
+    await f.scan(null, 59999);
+    assert.equal(state(), 'generating');
+    assert.equal(completions().length, 0);
+    await f.scan(null, 60000); await f.settleHashes();
+    assert.equal(state(), 'complete');
+    assert.equal(completions().length, 1);
+    await f.scan(null, 90000); await f.settleHashes();
+    assert.equal(state(), 'complete');
+    assert.equal(completions().length, 1);
+    await f.scan(html([true]), 91000);
+    assert.equal(state(), 'generating');
+    await f.scan(html([false]), 92000);
+    await f.scan(null, 100000); await f.settleHashes();
+    assert.equal(state(), 'complete');
+    assert.equal(completions().length, 2);
+    assert.notEqual(completions()[0].key, completions()[1].key);
+    await f.scan(null, 110000); await f.settleHashes();
+    assert.equal(completions().length, 2);
+    assert.doesNotMatch(JSON.stringify(diagnostics(f)), /PRIVATE/);
+  }
+});
+
+test('verified dots primitive relocates page-wide without a yellow drop; retained idle slot completes with panel closed', async t => {
+  const {panel, row} = require('./dots-activity-fixture.cjs');
+  for (const visibility of ['visible','hidden']) {
+    const f = await fixture(); t.after(() => f.dispose());
+    f.context.location.pathname = '/dots/fixture';
+    Object.defineProperty(f.document, 'visibilityState', {value:visibility, configurable:true});
+    const state = () => f.sent.findLast(m => m.type === 'STATUS').state;
+    const count = () => diagnostics(f).dotsVerifiedWorkSpinners.verifiedWorkSpinnerCount;
+    const completions = () => f.sent.filter(m => m.type === 'COMPLETE').length;
+    // Synthetic placement of the already verified primitive, not evidence for
+    // an unobserved second task-card implementation.
+    await f.scan(panel([true]) + '<article></article><section></section>', 100);
+    const main = f.document.querySelector('main');
+    main.querySelector('article').innerHTML = row(true);
+    await f.scan(null, 200);
+    assert.equal(count(), 2);
+    assert.equal(state(), 'generating');
+    main.querySelector('[data-orbit-profile]').remove();
+    await f.scan(null, 300);
+    assert.equal(count(), 1);
+    assert.equal(state(), 'generating');
+    const button = main.querySelector('article > button');
+    main.querySelector('section').append(button);
+    await f.scan(null, 20000);
+    assert.equal(count(), 1);
+    assert.equal(state(), 'generating');
+    assert.equal(completions(), 0);
+    const icon = button.firstElementChild;
+    const running = icon.innerHTML;
+    icon.innerHTML = '<svg aria-hidden="true"><path></path></svg>';
+    await f.scan(null, 21000);
+    await f.scan(null, 28999);
+    assert.equal(state(), 'generating');
+    assert.equal(count(), 0);
+    icon.innerHTML = running;
+    await f.scan(null, 29000);
+    assert.equal(diagnostics(f).trace.at(-1).detector.candidatePresent, false);
+    icon.innerHTML = '<svg aria-hidden="true"><path></path></svg>';
+    await f.scan(null, 30000);
+    await f.scan(null, 37999);
+    assert.equal(completions(), 0);
+    await f.scan(null, 38000); await f.settleHashes();
+    assert.equal(state(), 'complete');
+    assert.equal(completions(), 1);
+    await f.scan(null, 60000); await f.settleHashes();
+    assert.equal(completions(), 1);
+    assert.doesNotMatch(JSON.stringify(diagnostics(f).dotsVerifiedWorkSpinners), /PRIVATE|article|section|profile/);
+  }
+});
+
+test('shared dots task-button spinner relocates both ways and settles without any panel or idle slot', async t => {
+  const {panel} = require('./dots-activity-fixture.cjs');
+  const mainSpinner = '<article><button><svg class="motion-safe:animate-spin"><circle></circle></svg></button></article>';
+  for (const visibility of ['visible','hidden']) {
+    const f = await fixture(); t.after(() => f.dispose());
+    f.context.location.pathname = '/dots/fixture';
+    Object.defineProperty(f.document, 'visibilityState', {value:visibility, configurable:true});
+    const state = () => f.sent.findLast(m => m.type === 'STATUS').state;
+    const complete = () => f.sent.filter(m => m.type === 'COMPLETE').length;
+    for (const [time, html, count] of [[100,mainSpinner,1], [200,panel([true]),1],
+      [300,mainSpinner,1], [400,mainSpinner + panel([true]),2], [500,'',0], [8499,'',0]]) {
+      await f.scan(html, time);
+      assert.equal(state(), 'generating');
+      assert.equal(diagnostics(f).dotsVerifiedWorkSpinners.verifiedWorkSpinnerCount, count);
+      assert.equal(complete(), 0);
+    }
+    await f.scan(mainSpinner, 8500);
+    assert.equal(diagnostics(f).trace.at(-1).detector.candidatePresent, false);
+    await f.scan('', 8600);
+    await f.scan(null, 16599);
+    assert.equal(state(), 'generating');
+    await f.scan(null, 16600); await f.settleHashes();
+    assert.equal(state(), 'complete'); assert.equal(complete(), 1);
+    await f.scan(null, 30000); await f.settleHashes();
+    assert.equal(complete(), 1);
+    await f.scan(mainSpinner, 31000);
+    assert.equal(state(), 'generating');
+  }
+});
+
+test('page-wide dots initial zero never arms; hidden or removed work controls start zero settle', async t => {
+  const {row} = require('./dots-activity-fixture.cjs');
+  for (const loss of ['hidden','removed']) {
+    const f = await fixture(); t.after(() => f.dispose());
+    f.context.location.pathname = '/dots/fixture';
+    await f.scan('<article>' + row(false) + '</article>', 100);
+    await f.scan(null, 20000); await f.settleHashes();
+    assert.equal(diagnostics(f).trace.at(-1).detector.activeAfter, false);
+    assert.equal(f.sent.filter(m => m.type === 'COMPLETE').length, 0);
+    await f.scan('<article>' + row(true) + '</article>', 21000);
+    const article = f.document.querySelector('article');
+    if (loss === 'hidden') article.hidden = true;
+    else article.remove();
+    await f.scan(null, 22000);
+    await f.scan(null, 60000); await f.settleHashes();
+    assert.equal(f.sent.findLast(m => m.type === 'STATUS').state, 'complete');
+    assert.equal(diagnostics(f).dotsVerifiedWorkSpinners.verifiedWorkSpinnerCount, 0);
+    assert.equal(f.sent.filter(m => m.type === 'COMPLETE').length, 1);
+  }
+});
+
+for (const noise of ['<div role="dialog">PRIVATE_POPOVER</div>', '<div role="dialog" aria-modal="false"></div>', '<div role="alert">PRIVATE_ALERT</div>']) {
+  test(`dots generic UI preserves armed work: ${noise.split('>')[0]}`, async t => {
+    const f = await fixture(); t.after(() => f.dispose());
+    f.context.location.pathname = '/dots/fixture';
+    const spinner = '<button><svg class="motion-safe:animate-spin"><path></path><path></path></svg></button>';
+    await f.scan(spinner, 100);
+    await f.scan(spinner + noise, 200);
+    const event = diagnostics(f).trace.at(-1);
+    assert.equal(event.state, 'generating');
+    assert.equal(event.detector.activeAfter, true);
+    assert.equal(event.detector.lifecycleInterrupted, false);
+    assert.equal(event.detector.verifiedBlocked, false);
+    assert.equal(event.detector.verifiedError, false);
+    await f.scan(noise, 300);
+    await f.scan(null, 8300); await f.settleHashes();
+    assert.equal(f.sent.filter(m => m.type === 'COMPLETE').length, 1);
+  });
+}
+
+for (const interruption of ['<div role="dialog" aria-modal="true"></div>', '<div role="alertdialog"></div>',
+  '<div role="alert" data-state="error">PRIVATE_ERROR</div>', '<div role="status" data-status="failed"></div>',
+  '<div role="alert" aria-label="エラー"></div>']) {
+  test(`dots verified interruption requires fresh running evidence: ${interruption.split('>')[0]}`, async t => {
+    for (const visibility of ['visible', 'hidden']) {
+      const f = await fixture(); t.after(() => f.dispose());
+      f.context.location.pathname = '/dots/fixture';
+      Object.defineProperty(f.document, 'visibilityState', {value:visibility, configurable:true});
+      const spinner = '<button><svg class="motion-safe:animate-spin"><path></path><path></path></svg></button>';
+      const state = () => f.sent.findLast(m => m.type === 'STATUS').state;
+      const completions = () => f.sent.filter(m => m.type === 'COMPLETE').length;
+      await f.scan(spinner, 100);
+      const baseline = diagnostics(f).trace.at(-1).detector;
+      await f.scan('', 200);
+      assert.equal(diagnostics(f).trace.at(-1).detector.zeroSettleActive, true);
+      await f.scan(spinner + interruption, 300);
+      await f.scan(interruption, 10000); await f.settleHashes();
+      assert.equal(state(), 'generating');
+      let reason = diagnostics(f).trace.at(-1).detector;
+      assert.equal(reason.lifecycleInterrupted, true);
+      assert.equal(reason.zeroSettleActive, false);
+      assert.equal(reason.verifiedSpinnerCount, 0);
+      assert.equal(reason.verifiedBlocked || reason.verifiedError, true);
+      assert.equal(completions(), 0);
+      await f.scan('', 11000);
+      await f.scan(null, 60000); await f.settleHashes();
+      assert.equal(state(), 'generating');
+      assert.equal(completions(), 0);
+      assert.equal(diagnostics(f).trace.at(-1).detector.lifecycleInterrupted, true);
+      await f.scan(spinner, 61000);
+      reason = diagnostics(f).trace.at(-1).detector;
+      assert.equal(reason.lifecycleInterrupted, false);
+      assert.equal(reason.activeAfter, baseline.activeAfter);
+      assert.equal(reason.verifiedSpinnerCount, 1);
+      await f.scan('', 62000);
+      await f.scan(null, 69999);
+      assert.equal(state(), 'generating');
+      await f.scan(null, 70000); await f.settleHashes();
+      assert.equal(state(), 'complete');
+      assert.equal(completions(), 1);
+      await f.scan(null, 90000); await f.settleHashes();
+      assert.equal(completions(), 1);
+      assert.doesNotMatch(JSON.stringify(diagnostics(f)), /PRIVATE/);
+    }
+  });
+}
+
+test('dots blocked, error, route and cancellation suppress completion', async t => {
+  const {panel} = require('./dots-activity-fixture.cjs');
+  for (const interruption of ['blocked','error','route','cancel']) {
+    const f = await fixture(); t.after(() => f.dispose());
+    f.context.location.pathname = '/dots/fixture';
+    await f.scan(panel([true]), 100);
+    await f.scan(panel([false]), 200);
+    let interrupted = panel([false]);
+    if (interruption === 'blocked') interrupted += '<div role="alertdialog"></div>';
+    if (interruption === 'error') interrupted += '<div role="alert" data-state="error">PRIVATE_ERROR</div>';
+    if (interruption === 'route') f.context.location.pathname = '/dots/another';
+    if (interruption === 'cancel') {
+      interrupted += '<div data-codex-composer-root><button data-testid="stop-button"><span></span></button></div>';
+      await f.scan(interrupted, 1000);
+      f.document.querySelector('[data-testid="stop-button"] span').dispatchEvent(new f.window.Event('click', {bubbles:true}));
+    }
+    await f.scan(interrupted, 2000);
+    await f.scan(null, 20000); await f.settleHashes();
+    assert.equal(f.sent.filter(m => m.type === 'COMPLETE').length, 0, interruption);
+    assert.equal(f.sent.findLast(m => m.type === 'STATUS').state,
+      ['blocked','error'].includes(interruption) ? 'generating' : 'watching');
+    await f.scan(panel([false]), 21000);
+    await f.scan(null, 40000); await f.settleHashes();
+    assert.equal(f.sent.filter(m => m.type === 'COMPLETE').length, 0);
+
+  }
+});
+
+test('observed dots structure cannot mistake intermediate or historical answers for completion', async t => {
+  const f = await fixture(); t.after(() => f.dispose());
+  f.context.location.pathname = '/dots/fixture';
+  const answer = '<main><article data-message-id="opaque"><div data-markdown-copy><button></button></div></article></main>';
+  await f.scan(answer + '<div data-codex-composer-root><button aria-label="送信"></button></div>', 100);
+  await f.scan(null, 5000);
+  await f.scan(answer + '<div data-codex-composer-root><button data-testid="stop-button"></button></div>', 6000);
+  assert.equal(f.sent.findLast(m => m.type === 'STATUS').state, 'generating');
+  Object.defineProperty(f.document, 'visibilityState', {value:'hidden', configurable:true});
+  await f.scan(answer + '<div data-codex-composer-root><button aria-label="送信"></button></div>', 7000);
+  await f.scan(null, 20000); await f.settleHashes();
+  assert.equal(f.sent.filter(m => m.type === 'COMPLETE').length, 0);
+  assert.equal(f.sent.findLast(m => m.type === 'STATUS').state, 'watching');
+});
+
 async function fixture({legacy = false, digest = webcrypto.subtle.digest.bind(webcrypto.subtle), statusResult = 'ok', deliveryReply} = {}) {
   const pendingHashes = [];
   const {document, window} = parseHTML('<html><body><main></main></body></html>');
-  window.HTMLElement.prototype.getClientRects = function() {return [{}];};
+  window.Element.prototype.getClientRects = function() {return [{}];};
   window.getComputedStyle = e => ({display:e.style.display || 'block', visibility:e.style.visibility || 'visible', opacity:'1'});
   Object.defineProperty(document, 'visibilityState', {value:'visible', configurable:true});
   const timers = new Set(), observers = new Set(), messages = new Set(), domListeners = new Map(), windowListeners = new Map(), sent = [];
@@ -240,7 +572,8 @@ test('characterData-only records schedule a private mutation scan without heartb
   await flush();
   await f.inject();
   Object.defineProperty(f.document, 'visibilityState', {value:'hidden', configurable:true});
-  for (const set of [f.timers, f.observers, f.messages, ...f.domListeners.values(), ...f.windowListeners.values()]) assert.equal(set.size, 1);
+  assert.equal(f.timers.size, 1);
+  for (const set of [f.observers, f.messages, ...f.domListeners.values(), ...f.windowListeners.values()]) assert.equal(set.size, 1);
   const [observer] = f.observers;
   assert.equal(observer.options.subtree, true);
   assert.equal(observer.options.childList, true);
@@ -253,7 +586,7 @@ test('characterData-only records schedule a private mutation scan without heartb
     'disabled','aria-disabled','type','contenteditable',
     'data-testid','data-is-streaming','data-stream-active','data-message-id','data-turn-id','data-turn',
     'aria-label','aria-hidden','hidden','class','style','data-markdown-copy','data-markdown-han-text',
-    'data-chatgpt-search-unit-key','data-content-search-unit-key'
+    'data-chatgpt-search-unit-key','data-content-search-unit-key','data-orbit-profile','data-state','data-status','role','aria-modal'
   ]);
   const before = diagnostics(f).trace.length;
   // Deliver only a browser-shaped characterData record, with no childList fallback.
@@ -470,7 +803,8 @@ test('legacy same-version marker allows connection; reinjection leaves one compl
   const first = f.context.__chappySoundInstance;
   await f.inject();
   assert.notEqual(first, f.context.__chappySoundInstance);
-  for (const set of [f.timers, f.observers, f.messages, ...f.domListeners.values(), ...f.windowListeners.values()]) assert.equal(set.size, 1);
+  assert.equal(f.timers.size, 1);
+  for (const set of [f.observers, f.messages, ...f.domListeners.values(), ...f.windowListeners.values()]) assert.equal(set.size, 1);
   f.sent.length = 0;
   for (const fn of f.messages) await new Promise(resolve => assert.equal(fn({type:'SCAN_NOW'}, {}, resolve), true));
   await f.scan(turn(1), 100);
@@ -544,7 +878,7 @@ test('diagnostics are read-only, bounded, hash-only and reset on reinjection', a
   for (const hash of Object.values(last.identities)) assert.match(hash, /^[a-f0-9]{12}$/);
   assert.equal(JSON.stringify(before).includes('secret'), false);
   assert.equal(JSON.stringify(before).includes('synthetic'), false);
-  assert.equal(JSON.stringify(before).includes('/g/'), false);
+  assert.equal(JSON.stringify(before.trace).includes('/g/'), false);
   for (const value of Object.values(last.detector)) assert.equal(typeof value, 'boolean');
   const sentBefore = JSON.stringify(f.sent);
   const read = f.context.ChappyDOM.read, step = f.context.ChappyCompletionDetector.prototype.step;
