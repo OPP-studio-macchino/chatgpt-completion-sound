@@ -144,3 +144,30 @@ markup and physical audibility are unverified by the model tests.
   confirmation only when physical audio needs to be judged.
 - **Windows real-device acceptance remains UNVERIFIED.** PR stays
   Draft; Issue #7 stays open. No merge, release or publication.
+
+## Local Windows Codex preparation: owner-reported (2026-10-29 JST)
+
+The owner provided the following Codex results from their separate Windows
+computer. These are **owner-reported** observations, not directly inspected
+via this chat's computer-control tools:
+
+- Local clean clone at `935480e753af153043ff004bc7fd01b4e7a1d15b`.
+- `npm ci --ignore-scripts` completed and `npm test` reported
+  **268 checks PASS**; Python 3.13 repository validation and
+  validation unit test also reported PASS.
+- A dedicated Chrome test profile and a synthetic 250 ms WAV were
+  prepared. The existing Chrome profile, installed extensions, settings,
+  and WAV files were not changed.
+- The Windows Computer Use agent stopped when it could not safely verify
+  the Chrome URL. Loading the unpacked `extension/` directory,
+  notification/color setup, and all actual ChatGPT foreground/background
+  scenarios were **not performed**.
+- The URL-verification safety check must **not** be disabled or worked
+  around by an unverified automation path. A human can explicitly open
+  `chrome://extensions` in the *dedicated* test-profile window, enable
+  developer mode, and load the candidate `extension/` directory. Then
+  resume authorized tests, requesting physical audible confirmation.
+- No additional runtime failure or verified real-DOM structure was
+  observed. **Windows real-device acceptance remains UNVERIFIED**;
+  the issue and PR remain open/Draft until live acceptance.
+
