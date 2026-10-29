@@ -68,3 +68,47 @@ prose, raw response IDs, browser profile or credentials), identify which reader
 path was selected and whether the final toolbar is in that path's bounded scope.
 Real Chrome hidden scheduling, service-worker suspension, actual Writing Block
 markup and physical audibility are unverified by the model tests.
+
+## Independent follow-up: 2026-10-29 (JST)
+
+### Repository/CI state
+
+- On 2026-10-29, Issue #7 was still open and PR #8 was open, unmerged,
+  and Draft. The verified candidate HEAD was
+  `99f2efe15c7931c0346b4dadb03df729776a5613`.
+- GitHub Actions run `40797121627` on that candidate passed both
+  `test (20.x)` and `test (22.x)`.
+- Independent tests ran from a clean temporary clone of that exact
+  candidate on the only connected computer (macOS iMac, Node.js 24.2.0,
+  npm 11.3.0). Existing working-tree modifications in another checkout
+  were preserved, not staged or changed.
+- `npm ci --ignore-scripts --no-audit --no-fund` succeeded.
+- `npm test` passed all 268 checks: 228 Node, 26 DOM, 6 content,
+  4 background-model, 4 options. `npm run validate` passed;
+  `python3 -m unittest tests.test_validate_repo` passed (1 test);
+  `git diff --check` passed.
+- No additional runtime defect was reproduced by this independent
+  candidate verification; no additional runtime change is warranted
+  without new evidence.
+
+### Live Windows acceptance blocker
+
+- Remote Desktop Commander listed one online device, `iMac-2.local`,
+  and **no Windows device** accessible via that connection.
+- Consequently, Windows OS/Chrome build, the real Writing Block DOM,
+  foreground/background audible notifications, background-to-foreground
+  deduplication, yellow/blue tab-group transitions and manual-stop/
+  historical-load behavior **were not tested on Windows**.
+- The synthetic failure mechanism remains a confirmed *model* regression,
+  **not a confirmed diagnosis of the reporter's real Windows incident**.
+  Warning codes are not evidence that the compatibility shield should
+  be bypassed.
+- Next gate: connect an authorized Windows computer (ideally Windows 11
+  25H2 with Chrome 155.0.8059.40, otherwise record its actual versions)
+  to a usable remote-control tool; preserve its extension settings/WAV
+  before loading the candidate. Run the live acceptance matrix above
+  with synthetic prompts and explicit human audio confirmation. If it
+  fails, capture only redacted structural diagnostics and turn the
+  observed structure into a targeted regression.
+- Remain Draft and keep Issue #7 open. No merge, release, version bump,
+  Chrome Web Store publication or claim of Windows PASS.
