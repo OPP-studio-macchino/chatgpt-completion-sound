@@ -171,3 +171,70 @@ via this chat's computer-control tools:
   observed. **Windows real-device acceptance remains UNVERIFIED**;
   the issue and PR remain open/Draft until live acceptance.
 
+## Windows real-Chrome partial acceptance: owner/Codex report (2026-10-30 JST)
+
+**Evidence classification:** The following is the Windows Codex/owner's reported
+real-device outcome supplied in chat; the current GitHub update agent did not
+directly observe the Windows display or sound. Do not convert any unobserved
+scenario to PASS.
+
+- **Tested candidate:** `935480e753af153043ff004bc7fd01b4e7a1d15b`.
+  GitHub comparison against the immediately preceding PR head
+  `1bf9b09617822fcae1a68d18336849febf5ce84c`
+  shows only a subsequent `docs/ISSUE-7-INVESTIGATION.md` change,
+  not a runtime extension change.
+- **Windows:** Windows 11 Home, OS version `10.0.26200` / build `26200`.
+  **Chrome:** Google Chrome `155.0.8059.82`. This is *not* the
+  issue reporter's `155.0.8059.40` build.
+- **Automated on local Windows:** `npm test` 268 checks PASS; Python 3.13
+  repository validation and validator unit test PASS.
+- **Isolation:** Separate test Chrome profile; synthetic 250 ms WAV.
+  Owner/Codex previously reported no changes to the existing
+  personal Chrome profile, extensions, settings or WAV files.
+
+| Live scenario | Result | Observed evidence / boundary |
+| --- | --- | --- |
+| Ordinary response, foreground | **PASS (reported)** | Yellow while generating, blue on completion; owner heard completion sound |
+| Ordinary response, background: sound on completion | **NOT RUN / UNVERIFIED** | No explicit confirmation of audible sound while still in the background |
+| Actual Writing Block, foreground | **NOT RUN** | Actual Writing Block was not rendered |
+| Actual Writing Block, background | **NOT RUN** | Actual Writing Block was not rendered |
+| Return to tab after at least 5 s in background | **PASS (limited; reported)** | No *additional* sound on refocus; does **not** prove a background completion sound occurred |
+| Yellow / blue tab-group color | **PASS only for ordinary foreground** | Background and Writing Block color transitions not established |
+| Physical sound | **PASS only for WAV one-shot and ordinary foreground** | Owner heard both; background and Writing Block audibility remain unverified |
+| Manual stop suppression | **NOT RUN** | No live observation |
+| Recognized-error suppression | **NOT RUN** | No live observation |
+| Navigation suppression | **NOT RUN** | No live observation |
+| Historical conversation load suppression | **NOT RUN** | No live observation |
+
+**Observed configuration failure:** The first ordinary-response trial
+produced no notification because **automatic notifications were disabled**.
+A privacy-safe structural diagnostic reported `ready: true` and
+`ROLE_SIGNALS_MISSING` degraded health. The degraded warning was not
+the completion gate; after enabling notifications, the ordinary foreground
+trial succeeded. Do not disable the Compatibility Shield or relax guards
+to silence warnings.
+
+**Decision:** This is **partial Windows real-device acceptance, not an
+Issue #7 fix verification**. In particular, neither Writing Block scenario
+was run; the reported original failure is still unverified on an actual
+Writing Block. Keep PR #8 **Draft** and Issue #7 **open**. Do not merge,
+release, or publish.
+
+**Next scenarios (do not rerun known-good checks without a reason):**
+1. Render a genuine Writing Block containing only invented/synthetic text;
+   verify foreground start, yellow, completed blue and **one physically
+   heard sound**. If a Writing Block does not appear, record NOT RUN.
+2. Repeat with a genuine Writing Block kept in a background tab through
+   completion. Confirm the sound **while still unfocused**, observe the
+   eligible tab's colors, wait at least 5 seconds, then refocus and
+   confirm no duplicate.
+3. Run ordinary background with the same sound/color/dedup criteria.
+4. Check manual Stop, recognized error (only if safely reproducible),
+   navigation, historical chat display, and second response in the same
+   tab without allowing a false completion.
+5. If any case fails, collect privacy-safe structural path/busy/ready
+   and scoped editor/final-toolbar location metadata only. Avoid the
+   conversation text and any identifiers/secrets. Add an anonymized
+   regression and the minimum defensible runtime patch if supported
+   by observed evidence.
+
