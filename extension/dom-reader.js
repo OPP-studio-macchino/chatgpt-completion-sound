@@ -162,8 +162,15 @@
         timelineScoped = true;
         let scope = turn;
         for (let p = turn.parentElement; p && p !== main; p = p.parentElement) {
-          if (logicalUnits(p).length > 2 ||
-              p.querySelector('[contenteditable="true"], textarea')) break;
+          const units = logicalUnits(p);
+          // An editable answer (e.g. Writing Block) is not the composer.
+          // Only exempt editors inside the latest keyed unit (including its
+          // intermediate wrappers); readiness still requires two request units.
+          // Editors elsewhere and all textareas still bound request traversal.
+          const answerEditor = units.length <= 2 && units.at(-1) === turn;
+          const composer = [...p.querySelectorAll('[contenteditable="true"], textarea')]
+            .some(editor => editor.tagName === 'TEXTAREA' || !answerEditor || !turn.contains(editor));
+          if (units.length > 2 || composer) break;
           scope = p;
         }
         const requestUnits = logicalUnits(scope);

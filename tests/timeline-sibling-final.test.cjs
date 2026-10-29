@@ -6,13 +6,54 @@ const Detector=require('../extension/detector.js');
 const unit=id=>`<div data-chatgpt-search-unit-key="${id}"></div>`;
 const final='<div data-markdown-copy="private">private answer</div><button aria-label="回答を再生成">Regenerate</button>';
 const block=(id,body='',assistant=true)=>`<section><div>${unit(id+'-user')}${assistant?unit(id+'-assistant'):''}</div>${body}</section>`;
-function fixture(html){
+function fixture(html, visibility='hidden'){
  const {document,window}=parseHTML('<html><body><main><div data-request-input-activity-root="true"><div data-app-action-timeline-scroll>'+html+'</div><form><div contenteditable="true"></div></form></div></main></body></html>');
  window.HTMLElement.prototype.getClientRects=function(){return this.hidden?[]:[{}];};
  window.getComputedStyle=e=>({display:e.style.display||'block',visibility:e.style.visibility||'visible',opacity:'1'});
- Object.defineProperty(document,'visibilityState',{value:'hidden'});
+ Object.defineProperty(document,'visibilityState',{value:visibility});
  return {document,read:()=>DOM.read(document,'/c/fixture',true),set:html=>{document.querySelector('[data-app-action-timeline-scroll]').innerHTML=html;}};
 }
+// Synthetic Writing Block model, not a capture of the reporter's Windows DOM.
+const editableAnswer = (id, toolbar='') => `<section><div>${unit(id+'-user')}<div data-chatgpt-search-unit-key="${id}-assistant"><div contenteditable="true">synthetic editable answer</div></div></div>${toolbar}</section>`;
+for (const visibility of ['visible','hidden']) {
+ test(`editable answer reaches sibling final toolbar and completes once (${visibility})`,()=>{
+  const f=fixture(block('old',final),visibility),d=new Detector();d.step(f.read(),0);
+  f.set(editableAnswer('new')+'<button aria-label="停止">Stop</button>');
+  assert.equal(f.read().busy,true);d.step(f.read(),10);
+  f.set(editableAnswer('new'));assert.equal(f.read().ready,false);d.step(f.read(),20);
+  f.set(editableAnswer('new',final));assert.equal(f.read().ready,true);
+  d.step(f.read(),30);assert.equal(d.step(f.read(),2029),null);
+  assert.ok(d.step(f.read(),2030));assert.equal(d.step(f.read(),9000),null);
+ });
+ test(`editable answer preserves stop and hidden toolbar guards (${visibility})`,()=>{
+  const f=fixture(editableAnswer('new',final),visibility);
+  f.document.querySelector('button').hidden=true;assert.equal(f.read().ready,false);
+  f.document.querySelector('button').hidden=false;
+  f.set(editableAnswer('new',final)+'<button aria-label="停止">Stop</button>');
+  assert.equal(f.read().ready,false);
+ });
+}
+test('composer outside the answer still prevents borrowing a sibling toolbar',()=>{
+ const f=fixture(`<section><div>${unit('user')}${unit('assistant')}<div contenteditable="true"></div></div>${final}</section>`);
+ assert.equal(f.read().ready,false);
+});
+test('editable input and textarea inside answer remain traversal boundaries',()=>{
+ for (const body of [
+  `<section><div><div data-chatgpt-search-unit-key="user"><div contenteditable="true"></div></div>${unit('assistant')}</div>${final}</section>`,
+  editableAnswer('new',final).replace('synthetic editable answer', '<textarea></textarea>')
+ ]) assert.equal(fixture(body).read().ready,false);
+});
+test('editable answer inside an intermediate wrapper still reaches request toolbar',()=>{
+ const f=fixture(`<section>${unit('user')}<div><div data-chatgpt-search-unit-key="assistant"><div contenteditable="true"></div></div></div>${final}</section>`);
+ assert.equal(f.read().ready,true);
+});
+test('editable answer cannot notify after manual cancellation or on a historical load',()=>{
+ const f=fixture(editableAnswer('old',final)),d=new Detector();
+ assert.equal(d.step(f.read(),0),null);assert.equal(d.step(f.read(),5000),null);
+ f.set(editableAnswer('new')+'<button aria-label="停止">Stop</button>');d.step(f.read(),5010);
+ d.cancel();f.set(editableAnswer('new',final));
+ assert.equal(d.step(f.read(),5020),null);assert.equal(d.step(f.read(),10000),null);
+});
 test('live timeline final regenerate control completes while hidden even without markdown-copy',()=>{
  const f=fixture(block('a','<button aria-label="回答を再生成">Regenerate</button>'));assert.equal(f.read().ready,true);
  assert.equal(f.read().compatibility.state,'degraded');

@@ -99,6 +99,30 @@ test('normalized live timeline completes once after settling and exports no opaq
   assert.equal(JSON.stringify({sent:f.sent, diagnostic:f.diagnostics()}).includes('private-'), false);
 });
 
+for (const visibility of ['visible','hidden']) test(`synthetic editable answer delivers one COMPLETE (${visibility})`, async t => {
+  const f = await fixture(t);
+  Object.defineProperty(f.document, 'visibilityState', {value:visibility, configurable:true});
+  const timeline = (body, controls='') => '<div data-app-action-timeline-scroll><section><div>' +
+    unit('private-edit-input') + unit('private-edit-answer', body) + '</div>' + controls + '</section></div>';
+  const editor = '<div contenteditable="true">synthetic Writing Block</div>';
+  const regenerate = '<button aria-label="回答を再生成">Regenerate</button>';
+  await f.scan(timeline(editor, '<button aria-label="停止">Stop</button>'), 100);
+  assert.equal(f.state(), 'generating');
+  await f.scan(timeline(editor), 200);
+  await f.scan(null, 5000);
+  assert.equal(f.completions().length, 0); // Editor + elapsed time is not completion.
+  await f.scan(timeline(editor, regenerate), 5100);
+  await f.scan(null, 7099);
+  assert.equal(f.completions().length, 0);
+  await f.scan(null, 7100);
+  assert.equal(f.state(), 'complete');
+  await f.scan(null, 10000);
+  assert.equal(f.completions().length, 1);
+  assert.match(f.completions()[0].key, /^[a-f0-9]{64}$/);
+  assert.equal(JSON.stringify({sent:f.sent, diagnostic:f.diagnostics()}).includes('synthetic Writing Block'), false);
+  assert.equal(JSON.stringify(f.sent).includes('private-edit'), false);
+});
+
 test('new user, transient key replacement, and same assistant gaining copy complete once per job', async t => {
   const f = await fixture(t);
   let preceding = history;
