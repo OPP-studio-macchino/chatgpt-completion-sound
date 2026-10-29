@@ -149,6 +149,16 @@ test('equal positive main scores fail closed despite duplicate nodes',()=>{
  assert.equal(s.ready,false);assert.equal(s.compatibility.state,'incompatible');
  assert.deepEqual(s.compatibility.reasons,['REQUEST_AMBIGUOUS']);assert.deepEqual(s.compatibility.matched,[]);
 });
+test('three equally-scored Writing Block mains stay ambiguous and expose only score counts',()=>{
+ const f=fixture(duplicateRequest());
+ const main=f.document.querySelector('main');
+ main.after(main.cloneNode(true),main.cloneNode(true));
+ const diagnostic={dom:{}},s=DOM.read(f.document,'/c/fixture',true,diagnostic);
+ assert.equal(diagnostic.dom.mainCount,3);assert.equal(diagnostic.dom.selectedMainIndex,-1);
+ assert.equal(diagnostic.dom.mainScores.length,3);assert.ok(diagnostic.dom.mainScores.every(score=>score===diagnostic.dom.mainScores[0] && score>0));
+ assert.equal(JSON.stringify(diagnostic.dom.mainScores).includes('private'),false);
+ assert.equal(s.ready,false);assert.deepEqual(s.compatibility.reasons,['REQUEST_AMBIGUOUS']);
+});
 test('two signal-free mains fail closed regardless of composer, size or text',()=>{
  const f=fixture('');f.document.body.innerHTML='<main><form><textarea>conversation-turn Stop response</textarea></form></main><main><p>answer</p></main>';
  const diagnostic={dom:{}},s=DOM.read(f.document,'/c/fixture',true,diagnostic);

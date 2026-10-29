@@ -238,3 +238,41 @@ release, or publish.
    regression and the minimum defensible runtime patch if supported
    by observed evidence.
 
+## Writing Block ambiguity capture: Windows owner/Codex report (2026-10-30 JST)
+
+A genuine editable Writing Block was rendered in the dedicated Windows test
+profile using synthetic content. This is the first reported real Writing Block
+structure, but it did **not** complete live acceptance:
+
+- The privacy-safe diagnostic ended in `REQUEST_AMBIGUOUS`: `mainCount: 3`,
+  `selectedMainIndex: -1`, `busy: false`, `ready: false`. No compatible
+  conversation main was selected, so there was no completion candidate, tab
+  color, or audio event to evaluate.
+- The bounded unit history contained up to six hashed logical units. It did
+  not contain conversation prose, raw DOM identifiers, browser-profile data,
+  or audio data. The captured trace therefore establishes an ambiguity gate,
+  not that the editable-answer sibling-toolbar traversal failed.
+- Do **not** choose a main by order, text, size, or focus, and do not relax the
+  exactly-two-unit or compatibility guards. Any of those would turn this
+  deliberate fail-closed condition into potential cross-panel completion.
+
+### Diagnostic-only follow-up
+
+Candidate working tree (not yet committed/pushed) adds `mainScores`: a bounded
+array of packaged-category counts for each document `main`. It contains no
+text, selector values, keys, attributes, or user data. This permits a repeat
+capture to distinguish a zero-signal layout from a tied positive-score layout
+without weakening selection. A regression constructs three equally-scored
+mains and asserts `REQUEST_AMBIGUOUS`, `ready: false`, and only numeric score
+output.
+
+After this change, local Windows checks passed: `npm test` **269 checks**
+(229 Node, 26 DOM, 6 content, 4 hidden-tab, 4 options), Python 3.13 repository
+validation and validator unit test, and `git diff --check`.
+
+**Live result:** Writing Block foreground and background remain **FAIL / not
+accepted** until the updated unpacked extension is reloaded and a new
+privacy-safe capture shows a uniquely supported main. No completion/audio/color
+PASS is inferred from the prior ordinary-response result. Keep PR #8 Draft and
+Issue #7 open; do not merge, release, close, or publish.
+
