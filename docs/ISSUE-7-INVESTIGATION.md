@@ -112,3 +112,35 @@ markup and physical audibility are unverified by the model tests.
   observed structure into a targeted regression.
 - Remain Draft and keep Issue #7 open. No merge, release, version bump,
   Chrome Web Store publication or claim of Windows PASS.
+
+## Windows-hosted CI follow-up (2026-10-29 JST)
+
+- Added `windows-test` to `.github/workflows/ci.yml`. The job uses
+  GitHub-hosted `windows-latest`, Node.js 22 and Python 3.12; it does
+  not run Chrome and cannot confirm actual sound, tab colors or Writing
+  Block behavior in a real browser.
+- Initial Windows CI run `40806948706`: **all 268 JavaScript/DOM tests
+  passed**. The repository Python validator then failed with
+  `UnicodeDecodeError` because `Path.read_text()` used the Windows
+  system default encoding (cp1252) for UTF-8 files such as
+  `extension/manifest.json`. This was a cross-platform validation
+  defect, not evidence of the reported extension runtime defect.
+- Corrected all five text reads in `scripts/validate_repo.py` to
+  explicitly request `encoding="utf-8"`. No completion, compatibility,
+  transport, audio or tab-color runtime source was changed.
+- After the fix, GitHub Actions run `40807092224` passed all three
+  jobs: Ubuntu/Node 20.x, Ubuntu/Node 22.x and Windows/Node 22.x.
+  Windows `npm test`, Python repository validation and validator unit
+  test all passed.
+- The owner reports access to a Windows PC with Node.js v24.16.0,
+  but this chat's authorized computer-control connection still lists
+  only the iMac. The Windows-hosted CI result does not constitute
+  local Windows/Chrome real-device acceptance.
+- For the local Codex handoff, clone this PR branch into a new Windows
+  folder, read `AGENTS.md` and the `real-device-acceptance` Skill and
+  runbook, preserve any existing extension/settings/WAV, verify actual
+  Windows/Chrome/extension versions, and perform synthetic ordinary and
+  Writing Block foreground/background acceptance. Request human
+  confirmation only when physical audio needs to be judged.
+- **Windows real-device acceptance remains UNVERIFIED.** PR stays
+  Draft; Issue #7 stays open. No merge, release or publication.
