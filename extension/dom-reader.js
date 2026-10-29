@@ -62,7 +62,7 @@
   function visible(el) { return rendered(el) && Number(el.ownerDocument.defaultView.getComputedStyle(el).opacity) > 0; }
   function selectMain(doc) {
     const mains = [...doc.querySelectorAll('main')];
-    if (mains.length <= 1) return {main:mains[0] || null, mainCount:mains.length, selectedMainIndex:mains.length - 1};
+    if (mains.length <= 1) return {main:mains[0] || null, mainCount:mains.length, selectedMainIndex:mains.length - 1, mainScores:mains.length ? [0] : []};
     // Count packaged conversation categories once each, using the active profile.
     // Node multiplicity, prose, composer size and document order are not evidence.
     const categories = ['turn','message','searchUnit','timeline','request','stop','streaming','finalCopy','finalRegenerate','markdownCopy'];
@@ -70,14 +70,14 @@
     const highest = Math.max(...scores);
     const index = scores.indexOf(highest);
     const selectedMainIndex = highest > 0 && scores.lastIndexOf(highest) === index ? index : -1;
-    return {main:mains[selectedMainIndex] || null, mainCount:mains.length, selectedMainIndex};
+    return {main:mains[selectedMainIndex] || null, mainCount:mains.length, selectedMainIndex, mainScores:scores};
   }
   function read(doc, route, enabled = true, diagnostic) {
     const STOP = signal('stop'), COPY = signal('finalCopy');
-    const {main, mainCount, selectedMainIndex} = selectMain(doc);
+    const {main, mainCount, selectedMainIndex, mainScores} = selectMain(doc);
     const empty = {route, enabled, user:'', message:'', turn:'', ready:false, provisional:false, busy:false, blocked:false, error:false};
     if (diagnostic) Object.assign(diagnostic.dom, {
-      mainCount, selectedMainIndex,
+      mainCount, selectedMainIndex, mainScores,
       documentConversationWrapperCount:doc.querySelectorAll(signal('wrapper')).length,
       conversationWrapperCount:0, turnSelectorCount:0, userRoleCount:0, assistantRoleCount:0,
       stopMatchedCount:0, stopVisibleCount:0, streamingMatchedCount:0, streamingRenderedCount:0,
@@ -162,8 +162,15 @@
         timelineScoped = true;
         let scope = turn;
         for (let p = turn.parentElement; p && p !== main; p = p.parentElement) {
-          if (logicalUnits(p).length > 2 ||
-              p.querySelector('[contenteditable="true"], textarea')) break;
+          const units = logicalUnits(p);
+          // An editable answer (e.g. Writing Block) is not the composer.
+          // Only exempt editors inside the latest keyed unit (including its
+          // intermediate wrappers); readiness still requires two request units.
+          // Editors elsewhere and all textareas still bound request traversal.
+          const answerEditor = units.length <= 2 && units.at(-1) === turn;
+          const composer = [...p.querySelectorAll('[contenteditable="true"], textarea')]
+            .some(editor => editor.tagName === 'TEXTAREA' || !answerEditor || !turn.contains(editor));
+          if (units.length > 2 || composer) break;
           scope = p;
         }
         const requestUnits = logicalUnits(scope);
