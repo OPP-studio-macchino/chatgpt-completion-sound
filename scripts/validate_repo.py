@@ -11,7 +11,7 @@ for p in ROOT.rglob("*"):
         assert not p.name.startswith("._"), p
         assert p.suffix.lower() not in {".wav", ".pem", ".key", ".crx"}, p
 
-manifest = json.loads((EXT / "manifest.json").read_text())
+manifest = json.loads((EXT / "manifest.json").read_text(encoding="utf-8"))
 version = manifest["version"]
 
 assert manifest["manifest_version"] == 3
@@ -34,17 +34,17 @@ for ref in refs:
     assert (EXT / ref).is_file(), ref
 
 for html in EXT.glob("*.html"):
-    for ref in re.findall(r'(?:href|src)="([^"#:]+)"', html.read_text()):
+    for ref in re.findall(r'(?:href|src)="([^"#:]+)"', html.read_text(encoding="utf-8")):
         assert (EXT / ref).is_file(), (html.name, ref)
 
 for icon in (EXT / "icons").glob("*.png"):
     expected = int(icon.stem.split("-")[1])
     assert struct.unpack(">II", icon.read_bytes()[16:24]) == (expected, expected), icon
 
-package = json.loads((ROOT / "package.json").read_text())
-lock = json.loads((ROOT / "package-lock.json").read_text())
+package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+lock = json.loads((ROOT / "package-lock.json").read_text(encoding="utf-8"))
 assert package["version"] == version
 assert lock["version"] == version
-assert f"CONTENT_VERSION = '{version}'" in (EXT / "content.js").read_text()
+assert f"CONTENT_VERSION = '{version}'" in (EXT / "content.js").read_text(encoding="utf-8")
 
 print(f"repository validation PASS (v{version})")
